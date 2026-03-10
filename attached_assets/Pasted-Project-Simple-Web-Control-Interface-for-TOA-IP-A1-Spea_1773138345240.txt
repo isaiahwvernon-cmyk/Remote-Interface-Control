@@ -1,0 +1,71 @@
+Project: Simple Web Control Interface for TOA IP-A1 Speakers (School
+Use)
+
+Objective Create a simple, clean, and easy-to-use web control interface
+that allows teachers in classrooms to adjust the volume of their TOA
+IP-A1 network speaker. The system must be designed for non-technical
+users and should work from a normal web browser on the school network.
+
+The interface should be built using a single HTML page with JavaScript
+that sends HTTP commands directly to the TOA IP-A1 device.
+
+Core Concept Each classroom has a TOA IP-A1 speaker connected to the
+school network. The speaker exposes a web API or HTTP command interface.
+The web control page communicates directly with the speaker by sending
+HTTP requests.
+
+The page must know the following information in order to communicate
+with the speaker:
+
+-   Speaker IP Address
+-   Username
+-   Password
+
+These credentials allow the interface to authenticate and send commands
+to the speaker.
+
+User Experience Requirements The interface must be extremely simple so
+teachers can use it without technical knowledge.
+
+The design should be clean, modern, and visually clear.
+
+Required controls:
+
+• Large Volume Slider (primary control) • Mute / Unmute Button • Current
+Volume Display • Optional preset buttons: - Low - Normal - Loud
+
+The interface should provide clear visual feedback when changes are
+made.
+
+Design Guidelines - Large buttons and controls - Easy to use on tablets
+or touch screens - Clean minimal layout - No technical settings visible
+to teachers - Fast response when volume changes - Visually appealing but
+simple
+
+Technical Requirements The system should be built as:
+
+• A single HTML file • JavaScript used for device communication • HTTP
+requests using fetch() or similar
+
+Example communication flow:
+
+1.  User moves volume slider
+2.  JavaScript sends HTTP command to the IP-A1 device
+3.  Speaker processes the command
+4.  Interface updates the displayed volume
+
+The system should run entirely in the browser without requiring a
+backend server.
+
+Deployment Environment - Used in schools - Devices on the same local
+network - Teachers access the page from a computer, tablet, or classroom
+panel - The interface may be hosted locally or opened as a local HTML
+file
+
+Design Goal The final result should be a very simple classroom audio
+control panel that allows teachers to quickly and safely adjust their
+speaker volume without needing to understand the underlying audio
+system.
+
+The interface should feel similar to a small control panel: simple,
+fast, and reliable.
