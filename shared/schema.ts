@@ -8,19 +8,15 @@ export const speakerConnectionSchema = z.object({
 
 export type SpeakerConnection = z.infer<typeof speakerConnectionSchema>;
 
-export const volumeResponseSchema = z.object({
-  volume: z.number(),
-  max: z.number().optional(),
-  min: z.number().optional(),
+export const roomSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  ipAddress: z.string().min(1),
+  username: z.string().min(1),
+  password: z.string().min(1),
 });
 
-export type VolumeResponse = z.infer<typeof volumeResponseSchema>;
-
-export const muteResponseSchema = z.object({
-  mute_state: z.enum(["mute", "unmute"]),
-});
-
-export type MuteResponse = z.infer<typeof muteResponseSchema>;
+export type Room = z.infer<typeof roomSchema>;
 
 export const speakerStatusSchema = z.object({
   volume: z.number(),

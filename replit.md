@@ -1,34 +1,36 @@
 # TOA IP-A1 Speaker Control Interface
 
 ## Overview
-A standalone HTML file that lets teachers control TOA IP-A1 classroom speakers from any web browser. No server needed — just open the file locally.
+A web interface for controlling multiple TOA IP-A1 classroom speakers. Teachers can add rooms, name them, and control each speaker's volume from any browser on the school network.
 
 ## Architecture
-- `client/public/speaker-control.html` — The standalone, self-contained HTML file with all CSS and JS inline. This is the main deliverable.
-- The React app at `/` serves as a landing page with download instructions and a link to open the HTML file.
-
-## How It Works
-1. Teacher opens `speaker-control.html` in a browser on the school network
-2. Enters speaker IP address, username, and password
-3. The browser communicates directly with the TOA IP-A1 speaker via HTTP (fetch API)
-4. Browser handles Digest Authentication natively via the 401 challenge-response
-5. Credentials are saved in localStorage for convenience
+- **Frontend**: React + TypeScript with Tailwind CSS and shadcn/ui components
+- **Backend**: Express.js proxy that handles Digest Authentication to speakers
+- **Storage**: Rooms saved in browser localStorage (no database needed)
+- **Cross-platform**: Includes start.bat (Windows) and start.sh (Mac/Linux) for local running
 
 ## Key Features
-- Volume slider with circular percentage display
-- Plus/minus buttons for fine adjustment
-- Mute/unmute toggle
-- Preset buttons: Low (15), Normal (31), Loud (48)
-- Connection status indicator
-- Auto-polling every 10 seconds
-- Smart error handling (single notification on connection loss)
+- Multi-room management (add/edit/remove rooms, unlimited)
+- Room tiles UI (tablet-friendly grid layout)
+- Per-room volume control: slider, +/- buttons, presets (Low/Normal/Loud)
+- Mute/unmute per speaker
+- Auto-polling for status updates every 10 seconds
+- Smart error handling (single toast on connection loss, reconnect notification)
 
-## TOA IP-A1 API Reference
-- Volume range: 0 (Mute) to 61 (0 dB), initial: 31 (−30 dB)
-- Authentication: HTTP Digest Authentication
-- GET /api/v2/volume/get_master — Get current volume
-- GET /api/v2/volume/set_master?volume=N — Set volume
-- GET /api/v2/volume/inc_master — Increment volume
-- GET /api/v2/volume/dec_master — Decrement volume
-- GET /api/v2/volume/get_master_mute — Get mute state
-- GET /api/v2/volume/set_master_mute?mute_state=mute|unmute — Set mute
+## Key Files
+- `client/src/pages/home.tsx` - Main page: RoomList, AddRoomDialog, ControlPanel
+- `server/routes.ts` - Backend proxy with Digest Authentication
+- `shared/schema.ts` - Shared TypeScript types (Room, SpeakerStatus, SpeakerConnection)
+- `start.bat` / `start.sh` - Local startup scripts for Windows / Mac / Linux
+
+## API Proxy Routes
+- `POST /api/speaker/status` - Get volume, mute state, model info
+- `POST /api/speaker/volume/set` - Set master volume (0-61)
+- `POST /api/speaker/volume/increment` - Increment volume
+- `POST /api/speaker/volume/decrement` - Decrement volume
+- `POST /api/speaker/mute/set` - Set mute/unmute state
+
+## TOA IP-A1 API
+- Volume: 0 (Mute) to 61 (0 dB), initial: 31 (-30 dB)
+- Auth: HTTP Digest Authentication
+- Endpoints: GET /api/v2/volume/{get_master,set_master,inc_master,dec_master,get_master_mute,set_master_mute}
