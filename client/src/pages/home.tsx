@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Volume2, VolumeX, Volume1, Minus, Plus,
-  Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon, Pencil, X,
+  Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon, Pencil, X, Lock, Unlock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import type { Room, SpeakerStatus } from "@shared/schema";
+
+const ADMIN_PASSWORD = "IPA1";
 
 const VOLUME_PRESETS = [
   { label: "Low", value: 15, icon: Volume1 },
@@ -142,16 +144,93 @@ function AddRoomDialog({
   );
 }
 
+function AdminPasswordDialog({
+  onUnlock,
+  onCancel,
+}: {
+  onUnlock: () => void;
+  onCancel: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === ADMIN_PASSWORD) {
+      onUnlock();
+    } else {
+      setError(true);
+      setPassword("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onCancel}>
+      <Card
+        className="w-full sm:max-w-sm border-0 shadow-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mt-3 sm:hidden" />
+        <CardContent className="p-6 pt-5 sm:pt-6">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white">
+                <Lock className="w-5 h-5" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white" data-testid="text-admin-dialog-title">Admin Access</h2>
+            </div>
+            <button onClick={onCancel} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" data-testid="button-admin-dialog-close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Enter the admin password to manage rooms</p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <input
+                data-testid="input-admin-password"
+                type="password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(false); }}
+                placeholder="Enter password"
+                className={`w-full px-4 py-3.5 rounded-xl border ${error ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900" : "border-slate-200 dark:border-slate-700"} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]`}
+                required
+                autoFocus
+              />
+              {error && (
+                <p className="text-sm text-red-500 mt-2" data-testid="text-admin-error">Incorrect password</p>
+              )}
+            </div>
+            <div className="flex gap-3 pb-2 safe-bottom">
+              <Button type="button" variant="outline" onClick={onCancel} className="flex-1 h-14 rounded-xl font-medium text-base" data-testid="button-admin-cancel">
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                data-testid="button-admin-unlock"
+                className="flex-1 h-14 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold shadow-lg shadow-amber-500/25 text-base"
+              >
+                Unlock
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function RoomTile({
   room,
   onSelect,
   onEdit,
   onDelete,
+  adminMode,
 }: {
   room: Room;
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  adminMode: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -173,32 +252,34 @@ function RoomTile({
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
             <Speaker className="w-6 h-6" />
           </div>
-          <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={onEdit}
-              className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 active:bg-blue-100 transition-colors"
-              data-testid={`button-edit-room-${room.id}`}
-            >
-              <Pencil className="w-4.5 h-4.5" />
-            </button>
-            {confirmDelete ? (
+          {adminMode && (
+            <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
               <button
-                onClick={onDelete}
-                className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors"
-                data-testid={`button-confirm-delete-room-${room.id}`}
+                onClick={onEdit}
+                className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 active:bg-blue-100 transition-colors"
+                data-testid={`button-edit-room-${room.id}`}
               >
-                Delete?
+                <Pencil className="w-4.5 h-4.5" />
               </button>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="p-2.5 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 active:bg-red-100 transition-colors"
-                data-testid={`button-delete-room-${room.id}`}
-              >
-                <Trash2 className="w-4.5 h-4.5" />
-              </button>
-            )}
-          </div>
+              {confirmDelete ? (
+                <button
+                  onClick={onDelete}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors"
+                  data-testid={`button-confirm-delete-room-${room.id}`}
+                >
+                  Delete?
+                </button>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="p-2.5 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 active:bg-red-100 transition-colors"
+                  data-testid={`button-delete-room-${room.id}`}
+                >
+                  <Trash2 className="w-4.5 h-4.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate" data-testid={`text-room-name-${room.id}`}>
           {room.name}
@@ -217,12 +298,16 @@ function RoomList({
   onAddRoom,
   onEditRoom,
   onDeleteRoom,
+  adminMode,
+  onToggleAdmin,
 }: {
   rooms: Room[];
   onSelectRoom: (room: Room) => void;
   onAddRoom: () => void;
   onEditRoom: (room: Room) => void;
   onDeleteRoom: (id: string) => void;
+  adminMode: boolean;
+  onToggleAdmin: () => void;
 }) {
   return (
     <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950 flex flex-col">
@@ -239,14 +324,29 @@ function RoomList({
               </p>
             </div>
           </div>
-          <Button
-            onClick={onAddRoom}
-            data-testid="button-add-room"
-            className="h-11 px-5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-sm"
-          >
-            <PlusCircle className="w-4 h-4 mr-1.5" />
-            Add Room
-          </Button>
+          <div className="flex items-center gap-2">
+            {adminMode && (
+              <Button
+                onClick={onAddRoom}
+                data-testid="button-add-room"
+                className="h-11 px-5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-sm"
+              >
+                <PlusCircle className="w-4 h-4 mr-1.5" />
+                Add Room
+              </Button>
+            )}
+            <button
+              onClick={onToggleAdmin}
+              data-testid="button-admin-toggle"
+              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
+                adminMode
+                  ? "bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm shadow-amber-500/20"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              {adminMode ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -259,16 +359,20 @@ function RoomList({
               </div>
               <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2" data-testid="text-empty-title">No rooms yet</h2>
               <p className="text-base text-slate-500 dark:text-slate-400 mb-8 max-w-xs mx-auto">
-                Add your first classroom to start controlling its speaker
+                {adminMode
+                  ? "Add your first classroom to start controlling its speaker"
+                  : "Tap the lock icon to unlock admin access and add rooms"}
               </p>
-              <Button
-                onClick={onAddRoom}
-                data-testid="button-add-room-empty"
-                className="h-14 px-8 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-base"
-              >
-                <PlusCircle className="w-5 h-5 mr-2" />
-                Add Your First Room
-              </Button>
+              {adminMode && (
+                <Button
+                  onClick={onAddRoom}
+                  data-testid="button-add-room-empty"
+                  className="h-14 px-8 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-base"
+                >
+                  <PlusCircle className="w-5 h-5 mr-2" />
+                  Add Your First Room
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -279,16 +383,19 @@ function RoomList({
                   onSelect={() => onSelectRoom(room)}
                   onEdit={() => onEditRoom(room)}
                   onDelete={() => onDeleteRoom(room.id)}
+                  adminMode={adminMode}
                 />
               ))}
-              <button
-                onClick={onAddRoom}
-                data-testid="button-add-room-tile"
-                className="min-h-[130px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2.5 text-slate-400 dark:text-slate-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-700 transition-all active:scale-[0.97]"
-              >
-                <PlusCircle className="w-7 h-7" />
-                <span className="text-sm font-medium">Add Room</span>
-              </button>
+              {adminMode && (
+                <button
+                  onClick={onAddRoom}
+                  data-testid="button-add-room-tile"
+                  className="min-h-[130px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2.5 text-slate-400 dark:text-slate-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-700 transition-all active:scale-[0.97]"
+                >
+                  <PlusCircle className="w-7 h-7" />
+                  <span className="text-sm font-medium">Add Room</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -574,6 +681,8 @@ export default function Home() {
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [adminMode, setAdminMode] = useState(false);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
 
   const updateRooms = (newRooms: Room[]) => {
     setRooms(newRooms);
@@ -594,6 +703,14 @@ export default function Home() {
     updateRooms(rooms.filter((r) => r.id !== id));
   };
 
+  const handleToggleAdmin = () => {
+    if (adminMode) {
+      setAdminMode(false);
+    } else {
+      setShowPasswordDialog(true);
+    }
+  };
+
   if (activeRoom) {
     return <ControlPanel room={activeRoom} onBack={() => setActiveRoom(null)} />;
   }
@@ -606,7 +723,15 @@ export default function Home() {
         onAddRoom={() => { setEditingRoom(null); setShowAddDialog(true); }}
         onEditRoom={(room) => { setEditingRoom(room); setShowAddDialog(true); }}
         onDeleteRoom={handleDeleteRoom}
+        adminMode={adminMode}
+        onToggleAdmin={handleToggleAdmin}
       />
+      {showPasswordDialog && (
+        <AdminPasswordDialog
+          onUnlock={() => { setAdminMode(true); setShowPasswordDialog(false); }}
+          onCancel={() => setShowPasswordDialog(false)}
+        />
+      )}
       {showAddDialog && (
         <AddRoomDialog
           onAdd={handleAddRoom}
