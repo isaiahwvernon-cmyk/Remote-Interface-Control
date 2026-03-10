@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Volume2, VolumeX, Volume1, Minus, Plus,
-  Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon, Pencil, X, Lock, Unlock,
+  Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon, Pencil, X, Lock, Unlock, Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -58,7 +58,7 @@ function AddRoomDialog({
             <h2 className="text-xl font-bold text-slate-900 dark:text-white" data-testid="text-dialog-title">
               {editRoom ? "Edit Room" : "Add Room"}
             </h2>
-            <button onClick={onCancel} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" data-testid="button-dialog-close">
+            <button onClick={onCancel} className="p-2 rounded-xl text-[#707372] hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" data-testid="button-dialog-close">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -77,51 +77,51 @@ function AddRoomDialog({
             className="space-y-5"
           >
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Room Name</label>
+              <label className="block text-sm font-medium text-[#707372] dark:text-slate-300 mb-2">Room Name</label>
               <input
                 data-testid="input-room-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Room 101, Science Lab"
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]"
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
                 required
                 autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Speaker IP Address</label>
+              <label className="block text-sm font-medium text-[#707372] dark:text-slate-300 mb-2">Speaker IP Address</label>
               <input
                 data-testid="input-room-ip"
                 type="text"
                 value={ip}
                 onChange={(e) => setIp(e.target.value)}
                 placeholder="192.168.1.100"
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]"
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Username</label>
+              <label className="block text-sm font-medium text-[#707372] dark:text-slate-300 mb-2">Username</label>
               <input
                 data-testid="input-room-username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]"
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Password</label>
+              <label className="block text-sm font-medium text-[#707372] dark:text-slate-300 mb-2">Password</label>
               <input
                 data-testid="input-room-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••"
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]"
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
                 required
               />
             </div>
@@ -132,7 +132,7 @@ function AddRoomDialog({
               <Button
                 type="submit"
                 data-testid="button-dialog-save"
-                className="flex-1 h-14 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-base"
+                className="flex-1 h-14 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base"
               >
                 {editRoom ? "Save Changes" : "Add Room"}
               </Button>
@@ -174,16 +174,16 @@ function AdminPasswordDialog({
         <CardContent className="p-6 pt-5 sm:pt-6">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white">
+              <div className="w-10 h-10 rounded-xl bg-[#FF8200] flex items-center justify-center text-white">
                 <Lock className="w-5 h-5" />
               </div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white" data-testid="text-admin-dialog-title">Admin Access</h2>
             </div>
-            <button onClick={onCancel} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" data-testid="button-admin-dialog-close">
+            <button onClick={onCancel} className="p-2 rounded-xl text-[#707372] hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" data-testid="button-admin-dialog-close">
               <X className="w-5 h-5" />
             </button>
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Enter the admin password to manage rooms</p>
+          <p className="text-sm text-[#707372] dark:text-slate-400 mb-4">Enter the admin password to manage rooms</p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <input
@@ -192,7 +192,7 @@ function AdminPasswordDialog({
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(false); }}
                 placeholder="Enter password"
-                className={`w-full px-4 py-3.5 rounded-xl border ${error ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900" : "border-slate-200 dark:border-slate-700"} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-[16px]`}
+                className={`w-full px-4 py-3.5 rounded-xl border ${error ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900" : "border-slate-200 dark:border-slate-700"} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]`}
                 required
                 autoFocus
               />
@@ -207,7 +207,7 @@ function AdminPasswordDialog({
               <Button
                 type="submit"
                 data-testid="button-admin-unlock"
-                className="flex-1 h-14 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold shadow-lg shadow-amber-500/25 text-base"
+                className="flex-1 h-14 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base"
               >
                 Unlock
               </Button>
@@ -249,14 +249,14 @@ function RoomTile({
     >
       <div className="p-5 pb-4">
         <div className="flex items-start justify-between mb-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+          <div className="w-12 h-12 rounded-xl bg-[#FF8200] flex items-center justify-center text-white shadow-sm shadow-[#FF8200]/20">
             <Speaker className="w-6 h-6" />
           </div>
           {adminMode && (
             <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={onEdit}
-                className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 active:bg-blue-100 transition-colors"
+                className="p-2.5 rounded-xl text-[#707372] hover:text-[#FF8200] hover:bg-orange-50 dark:hover:bg-orange-900/20 active:bg-orange-100 transition-colors"
                 data-testid={`button-edit-room-${room.id}`}
               >
                 <Pencil className="w-4.5 h-4.5" />
@@ -272,7 +272,7 @@ function RoomTile({
               ) : (
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  className="p-2.5 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 active:bg-red-100 transition-colors"
+                  className="p-2.5 rounded-xl text-[#707372] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 active:bg-red-100 transition-colors"
                   data-testid={`button-delete-room-${room.id}`}
                 >
                   <Trash2 className="w-4.5 h-4.5" />
@@ -284,7 +284,7 @@ function RoomTile({
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate" data-testid={`text-room-name-${room.id}`}>
           {room.name}
         </h3>
-        <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 truncate">
+        <p className="text-sm text-[#707372] mt-1 truncate">
           {room.ipAddress}
         </p>
       </div>
@@ -309,17 +309,27 @@ function RoomList({
   adminMode: boolean;
   onToggleAdmin: () => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredRooms = useMemo(() => {
+    if (!searchQuery.trim()) return rooms;
+    const q = searchQuery.toLowerCase().trim();
+    return rooms.filter(
+      (r) => r.name.toLowerCase().includes(q) || r.ipAddress.includes(q)
+    );
+  }, [rooms, searchQuery]);
+
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col">
       <header className="sticky top-0 z-10 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60 px-5 py-4 safe-top">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+            <div className="w-11 h-11 rounded-xl bg-[#FF8200] flex items-center justify-center text-white shadow-sm shadow-[#FF8200]/20">
               <HomeIcon className="w-5 h-5" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 dark:text-white" data-testid="text-main-title">Rooms</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-[#707372]">
                 {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
               </p>
             </div>
@@ -329,7 +339,7 @@ function RoomList({
               <Button
                 onClick={onAddRoom}
                 data-testid="button-add-room"
-                className="h-11 px-5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-sm"
+                className="h-11 px-5 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-sm"
               >
                 <PlusCircle className="w-4 h-4 mr-1.5" />
                 Add Room
@@ -340,8 +350,8 @@ function RoomList({
               data-testid="button-admin-toggle"
               className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
                 adminMode
-                  ? "bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm shadow-amber-500/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  ? "bg-[#FF8200] text-white shadow-sm shadow-[#FF8200]/20"
+                  : "bg-slate-100 dark:bg-slate-800 text-[#707372] hover:bg-slate-200 dark:hover:bg-slate-700"
               }`}
             >
               {adminMode ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
@@ -354,11 +364,11 @@ function RoomList({
         <div className="max-w-3xl mx-auto">
           {rooms.length === 0 ? (
             <div className="text-center py-24">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 mb-5">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[#707372] mb-5">
                 <Speaker className="w-10 h-10" />
               </div>
               <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2" data-testid="text-empty-title">No rooms yet</h2>
-              <p className="text-base text-slate-500 dark:text-slate-400 mb-8 max-w-xs mx-auto">
+              <p className="text-base text-[#707372] mb-8 max-w-xs mx-auto">
                 {adminMode
                   ? "Add your first classroom to start controlling its speaker"
                   : "Tap the lock icon to unlock admin access and add rooms"}
@@ -367,7 +377,7 @@ function RoomList({
                 <Button
                   onClick={onAddRoom}
                   data-testid="button-add-room-empty"
-                  className="h-14 px-8 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-blue-500/25 text-base"
+                  className="h-14 px-8 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base"
                 >
                   <PlusCircle className="w-5 h-5 mr-2" />
                   Add Your First Room
@@ -375,34 +385,64 @@ function RoomList({
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {rooms.map((room) => (
-                <RoomTile
-                  key={room.id}
-                  room={room}
-                  onSelect={() => onSelectRoom(room)}
-                  onEdit={() => onEditRoom(room)}
-                  onDelete={() => onDeleteRoom(room.id)}
-                  adminMode={adminMode}
-                />
-              ))}
-              {adminMode && (
-                <button
-                  onClick={onAddRoom}
-                  data-testid="button-add-room-tile"
-                  className="min-h-[130px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2.5 text-slate-400 dark:text-slate-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-700 transition-all active:scale-[0.97]"
-                >
-                  <PlusCircle className="w-7 h-7" />
-                  <span className="text-sm font-medium">Add Room</span>
-                </button>
+            <>
+              {rooms.length > 5 && (
+                <div className="relative mb-4">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#707372]" />
+                  <input
+                    data-testid="input-search-rooms"
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search rooms..."
+                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-lg text-[#707372] hover:text-slate-600 transition-colors"
+                      data-testid="button-clear-search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+              {searchQuery && filteredRooms.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-base text-[#707372]">No rooms match "{searchQuery}"</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredRooms.map((room) => (
+                    <RoomTile
+                      key={room.id}
+                      room={room}
+                      onSelect={() => onSelectRoom(room)}
+                      onEdit={() => onEditRoom(room)}
+                      onDelete={() => onDeleteRoom(room.id)}
+                      adminMode={adminMode}
+                    />
+                  ))}
+                  {adminMode && !searchQuery && (
+                    <button
+                      onClick={onAddRoom}
+                      data-testid="button-add-room-tile"
+                      className="min-h-[130px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2.5 text-[#707372] hover:text-[#FF8200] hover:border-[#FF8200]/40 transition-all active:scale-[0.97]"
+                    >
+                      <PlusCircle className="w-7 h-7" />
+                      <span className="text-sm font-medium">Add Room</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
 
       <footer className="text-center pb-5 px-5 safe-bottom">
-        <p className="text-xs text-slate-400 dark:text-slate-500">TOA IP-A1 Speaker Control</p>
+        <p className="text-xs text-[#707372]/60">TOA IP-A1 Speaker Control</p>
       </footer>
     </div>
   );
@@ -420,17 +460,10 @@ function VolumeKnobDisplay({ volume, max }: { volume: number; max: number }) {
     <div className="relative inline-flex items-center justify-center">
       <svg width={size} height={size} className="transform -rotate-90">
         <circle cx={cx} cy={cx} r={r} stroke="currentColor" className="text-slate-200 dark:text-slate-700" strokeWidth="12" fill="none" />
-        <circle cx={cx} cy={cx} r={r} stroke="url(#volumeGradient)" strokeWidth="12" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} className="transition-all duration-300 ease-out" />
-        <defs>
-          <linearGradient id="volumeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#6366f1" />
-          </linearGradient>
-        </defs>
+        <circle cx={cx} cy={cx} r={r} stroke="#FF8200" strokeWidth="12" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} className="transition-all duration-300 ease-out" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-5xl font-bold text-slate-900 dark:text-white tabular-nums" data-testid="text-volume-percentage">{percentage}%</span>
-        <span className="text-sm text-slate-500 dark:text-slate-400 mt-1">{volume} / {max}</span>
       </div>
     </div>
   );
@@ -549,12 +582,12 @@ function ControlPanel({
 
   if (loading) {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white mb-5 animate-pulse shadow-lg shadow-blue-500/25">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-[#FF8200] text-white mb-5 animate-pulse shadow-lg shadow-[#FF8200]/25">
             <Speaker className="w-10 h-10" />
           </div>
-          <p className="text-base text-slate-600 dark:text-slate-400 font-medium" data-testid="text-connecting">Connecting to {room.name}...</p>
+          <p className="text-base text-[#707372] font-medium" data-testid="text-connecting">Connecting to {room.name}...</p>
         </div>
       </div>
     );
@@ -565,12 +598,12 @@ function ControlPanel({
   const isMuted = status?.muteState === "mute";
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col">
       <header className="sticky top-0 z-10 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60 px-5 py-3 safe-top">
         <div className="flex items-center gap-3 max-w-lg mx-auto">
           <button
             onClick={onBack}
-            className="p-3 -ml-3 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800 active:bg-slate-200 transition-colors"
+            className="p-3 -ml-3 rounded-xl text-[#707372] hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 active:bg-slate-200 transition-colors"
             data-testid="button-back"
           >
             <ArrowLeft className="w-6 h-6" />
@@ -579,7 +612,7 @@ function ControlPanel({
             <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 truncate" data-testid="text-room-title">{room.name}</h2>
             <div className="flex items-center gap-1.5 mt-0.5">
               <div className={`w-2 h-2 rounded-full flex-shrink-0 ${status?.connected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-red-500 shadow-sm shadow-red-500/50"}`} data-testid="status-connection" />
-              <span className="text-xs text-slate-400 dark:text-slate-500 truncate">{room.ipAddress}</span>
+              <span className="text-xs text-[#707372] truncate">{room.ipAddress}</span>
             </div>
           </div>
         </div>
@@ -602,7 +635,7 @@ function ControlPanel({
             <div className="flex items-center gap-4">
               <button
                 onClick={() => adjustVolume("decrement")}
-                className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
+                className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#707372] hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
                 data-testid="button-volume-down"
               >
                 <Minus className="w-6 h-6" />
@@ -621,13 +654,13 @@ function ControlPanel({
               </div>
               <button
                 onClick={() => adjustVolume("increment")}
-                className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
+                className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#707372] hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
                 data-testid="button-volume-up"
               >
                 <Plus className="w-6 h-6" />
               </button>
             </div>
-            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500 px-[72px]">
+            <div className="flex justify-between text-xs text-[#707372] px-[72px]">
               <span>Mute</span><span>Max</span>
             </div>
           </div>
@@ -656,8 +689,8 @@ function ControlPanel({
                   data-testid={`button-preset-${preset.label.toLowerCase()}`}
                   className={`h-20 rounded-2xl font-semibold text-sm flex flex-col items-center justify-center gap-2 transition-all duration-200 active:scale-95 ${
                     isActive
-                      ? "bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25"
-                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 shadow-sm"
+                      ? "bg-[#FF8200] text-white shadow-lg shadow-[#FF8200]/25"
+                      : "bg-white dark:bg-slate-800 text-[#707372] border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 shadow-sm"
                   }`}
                 >
                   <PresetIcon className="w-5 h-5" />
@@ -670,7 +703,7 @@ function ControlPanel({
       </main>
 
       <footer className="text-center pb-5 px-5 safe-bottom">
-        <p className="text-xs text-slate-400 dark:text-slate-500">TOA IP-A1 Speaker Control</p>
+        <p className="text-xs text-[#707372]/60">TOA IP-A1 Speaker Control</p>
       </footer>
     </div>
   );
