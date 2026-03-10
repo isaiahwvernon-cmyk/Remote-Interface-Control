@@ -1,18 +1,35 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+export const speakerConnectionSchema = z.object({
+  ipAddress: z.string().min(1, "IP address is required"),
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export type SpeakerConnection = z.infer<typeof speakerConnectionSchema>;
+
+export const volumeResponseSchema = z.object({
+  volume: z.number(),
+  max: z.number().optional(),
+  min: z.number().optional(),
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type VolumeResponse = z.infer<typeof volumeResponseSchema>;
+
+export const muteResponseSchema = z.object({
+  mute_state: z.enum(["mute", "unmute"]),
+});
+
+export type MuteResponse = z.infer<typeof muteResponseSchema>;
+
+export const speakerStatusSchema = z.object({
+  volume: z.number(),
+  max: z.number(),
+  min: z.number(),
+  muteState: z.enum(["mute", "unmute"]),
+  modelName: z.string().optional(),
+  terminalName: z.string().optional(),
+  connected: z.boolean(),
+});
+
+export type SpeakerStatus = z.infer<typeof speakerStatusSchema>;
