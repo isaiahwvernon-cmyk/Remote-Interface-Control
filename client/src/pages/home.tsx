@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Volume2, VolumeX, Volume1, Minus, Plus,
   Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon, Pencil, X, Lock, Unlock, Search,
+  RefreshCw, CloudOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -21,15 +22,33 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-function loadRooms(): Room[] {
+function loadRoomsFromCache(): Room[] {
   try {
     const saved = localStorage.getItem("toa_rooms");
     return saved ? JSON.parse(saved) : [];
   } catch { return []; }
 }
 
-function saveRooms(rooms: Room[]) {
+function saveRoomsToCache(rooms: Room[]) {
   localStorage.setItem("toa_rooms", JSON.stringify(rooms));
+}
+
+async function fetchRoomsFromServer(): Promise<Room[]> {
+  const res = await fetch("/api/rooms");
+  if (!res.ok) throw new Error("Failed to load config");
+  return res.json();
+}
+
+async function saveRoomsToServer(rooms: Room[]): Promise<void> {
+  const res = await fetch("/api/rooms", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-password": ADMIN_PASSWORD,
+    },
+    body: JSON.stringify(rooms),
+  });
+  if (!res.ok) throw new Error("Failed to save config");
 }
 
 function AddRoomDialog({
@@ -300,6 +319,8 @@ function RoomList({
   onDeleteRoom,
   adminMode,
   onToggleAdmin,
+  syncStatus,
+  onRefresh,
 }: {
   rooms: Room[];
   onSelectRoom: (room: Room) => void;
@@ -308,6 +329,8 @@ function RoomList({
   onDeleteRoom: (id: string) => void;
   adminMode: boolean;
   onToggleAdmin: () => void;
+  syncStatus: "idle" | "synced" | "syncing" | "offline" | "error";
+  onRefresh: () => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -329,9 +352,27 @@ function RoomList({
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 dark:text-white" data-testid="text-main-title">Rooms</h1>
-              <p className="text-xs text-[#707372]">
-                {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-[#707372]">
+                  {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
+                </p>
+                {syncStatus !== "idle" && <span className="text-[#707372]/40">·</span>}
+                {syncStatus === "syncing" && (
+                  <span className="flex items-center gap-1 text-xs text-[#FF8200]">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Syncing</span>
+                  </span>
+                )}
+                {syncStatus === "synced" && (
+                  <span className="text-xs text-emerald-500" data-testid="status-synced">Config saved</span>
+                )}
+                {(syncStatus === "offline" || syncStatus === "error") && (
+                  <button onClick={onRefresh} className="flex items-center gap-1 text-xs text-[#707372] hover:text-[#FF8200] transition-colors" data-testid="button-sync-retry">
+                    <CloudOff className="w-3 h-3" />
+                    <span>Local only — tap to retry</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -710,17 +751,50 @@ function ControlPanel({
 }
 
 export default function Home() {
-  const [rooms, setRooms] = useState<Room[]>(loadRooms);
+  const [rooms, setRooms] = useState<Room[]>(() => loadRoomsFromCache());
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [adminMode, setAdminMode] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "synced" | "syncing" | "offline" | "error">("syncing");
+  const { toast } = useToast();
 
-  const updateRooms = (newRooms: Room[]) => {
+  const loadFromServer = useCallback(async () => {
+    setSyncStatus("syncing");
+    try {
+      const serverRooms = await fetchRoomsFromServer();
+      setRooms(serverRooms);
+      saveRoomsToCache(serverRooms);
+      setSyncStatus("idle");
+    } catch {
+      const cached = loadRoomsFromCache();
+      setRooms(cached);
+      setSyncStatus("offline");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFromServer();
+  }, [loadFromServer]);
+
+  const updateRooms = useCallback(async (newRooms: Room[]) => {
     setRooms(newRooms);
-    saveRooms(newRooms);
-  };
+    saveRoomsToCache(newRooms);
+    setSyncStatus("syncing");
+    try {
+      await saveRoomsToServer(newRooms);
+      setSyncStatus("synced");
+      setTimeout(() => setSyncStatus("idle"), 3000);
+    } catch {
+      setSyncStatus("error");
+      toast({
+        title: "Could not save to config file",
+        description: "Rooms saved locally. Check that the server is running.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
 
   const handleAddRoom = (room: Room) => {
     if (editingRoom) {
@@ -758,6 +832,8 @@ export default function Home() {
         onDeleteRoom={handleDeleteRoom}
         adminMode={adminMode}
         onToggleAdmin={handleToggleAdmin}
+        syncStatus={syncStatus}
+        onRefresh={loadFromServer}
       />
       {showPasswordDialog && (
         <AdminPasswordDialog

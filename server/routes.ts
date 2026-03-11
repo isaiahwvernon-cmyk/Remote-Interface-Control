@@ -1,9 +1,30 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { speakerConnectionSchema } from "@shared/schema";
+import { speakerConnectionSchema, roomSchema } from "@shared/schema";
 import { z } from "zod";
 import http from "http";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+
+const ROOMS_CONFIG_PATH = path.resolve(process.cwd(), "rooms.json");
+const ADMIN_PASSWORD = "IPA1";
+
+function readRoomsConfig(): any[] {
+  try {
+    if (!fs.existsSync(ROOMS_CONFIG_PATH)) {
+      fs.writeFileSync(ROOMS_CONFIG_PATH, JSON.stringify([], null, 2), "utf-8");
+    }
+    const raw = fs.readFileSync(ROOMS_CONFIG_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+function writeRoomsConfig(rooms: any[]): void {
+  fs.writeFileSync(ROOMS_CONFIG_PATH, JSON.stringify(rooms, null, 2), "utf-8");
+}
 
 const volumeSetSchema = speakerConnectionSchema.extend({
   volume: z.number().int().min(0).max(61),
@@ -149,6 +170,32 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.get("/api/rooms", (_req, res) => {
+    try {
+      const rooms = readRoomsConfig();
+      res.json(rooms);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to read rooms config" });
+    }
+  });
+
+  app.put("/api/rooms", (req, res) => {
+    const adminPw = req.headers["x-admin-password"];
+    if (adminPw !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const parsed = z.array(roomSchema).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid rooms data" });
+    }
+    try {
+      writeRoomsConfig(parsed.data);
+      res.json({ ok: true, count: parsed.data.length });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to write rooms config" });
+    }
+  });
+
   app.post("/api/speaker/status", async (req, res) => {
     const parsed = speakerConnectionSchema.safeParse(req.body);
     if (!parsed.success) {
