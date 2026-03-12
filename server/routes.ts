@@ -181,18 +181,23 @@ export async function registerRoutes(
 
   app.put("/api/rooms", (req, res) => {
     const adminPw = req.headers["x-admin-password"];
+    console.log("[PUT /api/rooms] admin header:", adminPw, "body type:", typeof req.body, "body:", JSON.stringify(req.body));
     if (adminPw !== ADMIN_PASSWORD) {
+      console.log("[PUT /api/rooms] Unauthorized — password mismatch");
       return res.status(401).json({ error: "Unauthorized" });
     }
     const parsed = z.array(roomSchema).safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid rooms data" });
+      console.log("[PUT /api/rooms] Validation failed:", JSON.stringify(parsed.error));
+      return res.status(400).json({ error: "Invalid rooms data", details: parsed.error.issues });
     }
     try {
       writeRoomsConfig(parsed.data);
+      console.log("[PUT /api/rooms] Saved", parsed.data.length, "rooms to", ROOMS_CONFIG_PATH);
       res.json({ ok: true, count: parsed.data.length });
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to write rooms config" });
+      console.error("[PUT /api/rooms] Write failed:", err?.message);
+      res.status(500).json({ error: "Failed to write rooms config", details: err?.message });
     }
   });
 

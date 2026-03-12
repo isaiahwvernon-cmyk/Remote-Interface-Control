@@ -48,7 +48,12 @@ async function saveRoomsToServer(rooms: Room[]): Promise<void> {
     },
     body: JSON.stringify(rooms),
   });
-  if (!res.ok) throw new Error("Failed to save config");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`[rooms] PUT /api/rooms failed: HTTP ${res.status}`, body);
+    throw new Error(`HTTP ${res.status}: ${body || "no details"}`);
+  }
+  console.log("[rooms] PUT /api/rooms success, count:", rooms.length);
 }
 
 function AddRoomDialog({
@@ -789,11 +794,12 @@ export default function Home() {
       await saveRoomsToServer(newRooms);
       setSyncStatus("synced");
       setTimeout(() => setSyncStatus("idle"), 3000);
-    } catch {
+    } catch (err: any) {
       setSyncStatus("error");
+      console.error("[rooms] Save failed:", err?.message || err);
       toast({
         title: "Could not save to config file",
-        description: "Rooms saved locally. Check that the server is running.",
+        description: err?.message || "Check that the server is running.",
         variant: "destructive",
       });
     }
