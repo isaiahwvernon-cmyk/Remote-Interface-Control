@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-for /f "tokens=*" %%v in ('node -e "process.stdout.write(process.version)"') do set NODEVER=%%v
+for /f %%v in ('node --version') do set NODEVER=%%v
 echo Node.js version: %NODEVER%
 echo.
 
@@ -30,13 +30,11 @@ if not exist node_modules (
     echo.
 )
 
-for /f "tokens=14 delims= " %%i in ('ipconfig ^| findstr /c:"IPv4 Address"') do set IP=%%i
-
 echo Starting server...
 echo.
 echo Open your browser to:
 echo   http://localhost:5000
-echo   http://%IP%:5000
+echo   (The server will also print your LAN address)
 echo.
 echo Press Ctrl+C to stop the server.
 echo ==========================================
