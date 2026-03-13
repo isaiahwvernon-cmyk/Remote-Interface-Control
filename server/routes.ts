@@ -10,13 +10,46 @@ import path from "path";
 const ROOMS_CONFIG_PATH = path.resolve(process.cwd(), "rooms.json");
 const ADMIN_PASSWORD = "IPA1";
 
+function makeId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
 function readRoomsConfig(): any[] {
   try {
     if (!fs.existsSync(ROOMS_CONFIG_PATH)) {
       fs.writeFileSync(ROOMS_CONFIG_PATH, JSON.stringify([], null, 2), "utf-8");
     }
     const raw = fs.readFileSync(ROOMS_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
+    const parsed: any[] = JSON.parse(raw);
+
+    // Migrate old flat-format rooms (ipAddress/username/password at root level)
+    // to the new speakers[] format
+    const migrated = parsed.map((r: any) => {
+      if (r.ipAddress && !r.speakers) {
+        return {
+          id: r.id,
+          name: r.name,
+          syncMode: true,
+          speakers: [
+            {
+              id: makeId(),
+              label: "Speaker 1",
+              ipAddress: r.ipAddress,
+              username: r.username,
+              password: r.password,
+            },
+          ],
+        };
+      }
+      return r;
+    });
+
+    // Write back if migration happened
+    if (migrated.some((r: any, i: number) => r !== parsed[i])) {
+      fs.writeFileSync(ROOMS_CONFIG_PATH, JSON.stringify(migrated, null, 2), "utf-8");
+    }
+
+    return migrated;
   } catch {
     return [];
   }

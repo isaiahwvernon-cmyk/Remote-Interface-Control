@@ -8,12 +8,21 @@ export const speakerConnectionSchema = z.object({
 
 export type SpeakerConnection = z.infer<typeof speakerConnectionSchema>;
 
+export const speakerSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  ipAddress: z.string().min(1, "IP address is required"),
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type Speaker = z.infer<typeof speakerSchema>;
+
 export const roomSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
-  ipAddress: z.string().min(1),
-  username: z.string().min(1),
-  password: z.string().min(1),
+  speakers: z.array(speakerSchema).min(1),
+  syncMode: z.boolean().default(true),
 });
 
 export type Room = z.infer<typeof roomSchema>;
