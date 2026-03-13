@@ -30,6 +30,22 @@ if not exist node_modules (
     echo.
 )
 
+if not exist dist\public\index.html (
+    echo Building app for the first time... this takes about 30 seconds.
+    echo.
+    call npx tsx script/build.ts
+    if %errorlevel% neq 0 (
+        echo.
+        echo ERROR: Build failed. See above for details.
+        echo Try deleting the "dist" folder and running again.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo Build complete!
+    echo.
+)
+
 echo Starting server...
 echo.
 echo Open your browser to:
@@ -40,16 +56,11 @@ echo Press Ctrl+C to stop the server.
 echo ==========================================
 echo.
 
-set NODE_ENV=development
-npx tsx server/index.ts
+node dist\index.cjs
 
 echo.
 echo ==========================================
-echo   Server stopped.
+echo   Server stopped. Press any key to close.
 echo ==========================================
 echo.
-if %errorlevel% neq 0 (
-    echo ERROR: The server exited with an error (code %errorlevel%).
-    echo Please copy the error message above and report it.
-)
 pause
