@@ -1,6 +1,6 @@
 @echo off
 echo ==========================================
-echo   IP-A1 Volume Controller
+echo   M-864D Mixer Controller
 echo ==========================================
 echo.
 

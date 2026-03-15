@@ -1,1256 +1,997 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import {
-  Volume2, VolumeX, Volume1, Minus, Plus,
-  Speaker, AlertCircle, ArrowLeft, Trash2, PlusCircle, Home as HomeIcon,
-  Pencil, X, Lock, Unlock, Search, RefreshCw, CloudOff, Link2, Unlink,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Card, CardContent } from "@/components/ui/card";
+import { useState, useCallback, useRef } from "react";
+import { useMixerWs } from "@/hooks/use-mixer";
+import { faderPositionToDb, crosspointValueToDb, formatDb } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import type { Room, Speaker as SpeakerType, SpeakerStatus } from "@shared/schema";
+import { Settings, Save, FolderOpen, WifiOff, X } from "lucide-react";
 
-const ADMIN_PASSWORD = "IPA1";
-
-const VOLUME_PRESETS = [
-  { label: "Low", value: 15, icon: Volume1 },
-  { label: "Normal", value: 31, icon: Volume2 },
-  { label: "Loud", value: 48, icon: Speaker },
-];
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
-
-function loadRoomsFromCache(): Room[] {
-  try {
-    const saved = localStorage.getItem("toa_rooms");
-    if (!saved) return [];
-    const parsed = JSON.parse(saved);
-    // Migrate old flat-format from localStorage cache
-    return parsed.map((r: any) => {
-      if (r.ipAddress && !r.speakers) {
-        return {
-          id: r.id,
-          name: r.name,
-          syncMode: true,
-          speakers: [{ id: generateId(), label: "Speaker 1", ipAddress: r.ipAddress, username: r.username, password: r.password }],
-        };
-      }
-      return r;
-    });
-  } catch { return []; }
-}
-
-function saveRoomsToCache(rooms: Room[]) {
-  localStorage.setItem("toa_rooms", JSON.stringify(rooms));
-}
-
-async function fetchRoomsFromServer(): Promise<Room[]> {
-  const res = await fetch("/api/rooms");
-  if (!res.ok) throw new Error("Failed to load config");
+async function api(path: string, body?: object) {
+  const res = await fetch(path, {
+    method: body !== undefined ? "POST" : "GET",
+    headers: { "Content-Type": "application/json" },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-async function saveRoomsToServer(rooms: Room[]): Promise<void> {
-  const res = await fetch(`/api/rooms?pw=${encodeURIComponent(ADMIN_PASSWORD)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "x-admin-password": ADMIN_PASSWORD },
-    body: JSON.stringify(rooms),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${body || "no details"}`);
-  }
-}
-
-// ─── Input field styling ─────────────────────────────────────────────────────
-const INPUT_CLS = "w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]";
-
-// ─── Blank speaker factory ────────────────────────────────────────────────────
-function blankSpeaker(index: number): SpeakerType {
-  return { id: generateId(), label: `Speaker ${index + 1}`, ipAddress: "", username: "", password: "" };
-}
-
-// ─── AddRoomDialog ────────────────────────────────────────────────────────────
-function AddRoomDialog({
-  onAdd,
-  onCancel,
-  editRoom,
-}: {
-  onAdd: (room: Room) => void;
-  onCancel: () => void;
-  editRoom?: Room | null;
-}) {
-  const [name, setName] = useState(editRoom?.name || "");
-  const [speakers, setSpeakers] = useState<SpeakerType[]>(
-    editRoom?.speakers?.length ? editRoom.speakers : [blankSpeaker(0)]
+function LevelMeter({ level }: { level: number }) {
+  const pct = Math.max(0, Math.min(100, (level / 72) * 100));
+  const color =
+    level >= 60 ? "#ef4444" : level >= 48 ? "#eab308" : "#22c55e";
+  return (
+    <div
+      className="w-2 rounded-sm overflow-hidden flex flex-col justify-end"
+      style={{ height: 140, background: "hsl(220 15% 12%)" }}
+    >
+      <div
+        className="w-full transition-all duration-75 rounded-sm"
+        style={{ height: `${pct}%`, background: color, minHeight: level > 0 ? 2 : 0 }}
+      />
+    </div>
   );
+}
 
-  const updateSpeaker = (index: number, field: keyof SpeakerType, value: string) => {
-    setSpeakers((prev) => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
-  };
-
-  const addSpeaker = () => setSpeakers((prev) => [...prev, blankSpeaker(prev.length)]);
-
-  const removeSpeaker = (index: number) =>
-    setSpeakers((prev) => prev.filter((_, i) => i !== index));
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onAdd({
-      id: editRoom?.id || generateId(),
-      name: name.trim(),
-      speakers,
-      syncMode: editRoom?.syncMode ?? true,
-    });
-  };
+function ChannelStrip({
+  label,
+  position,
+  on,
+  level,
+  onFaderChange,
+  onToggle,
+  color,
+}: {
+  label: string;
+  position: number;
+  on: boolean;
+  level: number;
+  onFaderChange: (pos: number) => void;
+  onToggle: () => void;
+  color: string;
+}) {
+  const db = faderPositionToDb(position);
+  const dbStr = formatDb(db);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={onCancel}
+      className="flex flex-col items-center gap-1 rounded-xl p-2 shrink-0"
+      style={{
+        width: 68,
+        background: on ? "hsl(220 15% 13%)" : "hsl(220 15% 10%)",
+        border: `1px solid hsl(220 15% 20%)`,
+        opacity: on ? 1 : 0.55,
+      }}
+      data-testid={`channel-strip-${label}`}
     >
-      <Card
-        className="w-full sm:max-w-md border-0 shadow-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
+      <div
+        className="w-full text-center font-bold rounded-lg px-1 py-1 text-xs tracking-wider truncate"
+        style={{ background: color, color: "#fff" }}
       >
-        <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mt-3 sm:hidden" />
-        <CardContent className="p-6 pt-5 sm:pt-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2
-              className="text-xl font-bold text-slate-900 dark:text-white"
-              data-testid="text-dialog-title"
-            >
-              {editRoom ? "Edit Room" : "Add Room"}
-            </h2>
-            <button
-              onClick={onCancel}
-              className="p-2 rounded-xl text-[#707372] hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              data-testid="button-dialog-close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+        {label}
+      </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Room name */}
-            <div>
-              <label className="block text-sm font-medium text-[#707372] dark:text-slate-300 mb-2">
-                Room Name
-              </label>
-              <input
-                data-testid="input-room-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Room 101, Science Lab"
-                className={INPUT_CLS}
-                required
-                autoFocus
-              />
-            </div>
+      <LevelMeter level={level} />
 
-            {/* Speakers */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-[#707372] dark:text-slate-300">
-                  Speakers
-                  {speakers.length > 1 && (
-                    <span className="ml-2 text-xs bg-[#FF8200]/10 text-[#FF8200] px-2 py-0.5 rounded-full font-semibold">
-                      {speakers.length}
-                    </span>
-                  )}
-                </label>
-                <button
-                  type="button"
-                  onClick={addSpeaker}
-                  className="flex items-center gap-1.5 text-sm text-[#FF8200] hover:text-[#e67400] font-medium transition-colors"
-                  data-testid="button-add-speaker"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  Add Speaker
-                </button>
-              </div>
+      <div className="relative" style={{ width: 44, height: 160 }}>
+        <div
+          className="absolute rounded"
+          style={{
+            left: "50%",
+            top: 0,
+            bottom: 0,
+            width: 4,
+            transform: "translateX(-50%)",
+            background: "hsl(220 15% 18%)",
+            border: "1px solid hsl(220 15% 26%)",
+          }}
+        />
+        <div
+          className="absolute rounded-sm"
+          style={{
+            left: "50%",
+            width: 2,
+            height: 8,
+            background: "hsl(30 100% 52%)",
+            transform: "translateX(-50%)",
+            top: "calc(100% * (1 - 53/63) - 4px)",
+          }}
+        />
+        <input
+          type="range"
+          min={0}
+          max={63}
+          value={position}
+          onChange={(e) => onFaderChange(parseInt(e.target.value))}
+          className="mixer-fader"
+          data-testid={`fader-${label}`}
+        />
+      </div>
 
-              {speakers.map((sp, idx) => (
-                <div
-                  key={sp.id}
-                  className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3 bg-slate-50/50 dark:bg-slate-800/40"
-                  data-testid={`speaker-entry-${idx}`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-[#FF8200] flex items-center justify-center">
-                        <Speaker className="w-3.5 h-3.5 text-white" />
-                      </div>
-                      <input
-                        type="text"
-                        value={sp.label}
-                        onChange={(e) => updateSpeaker(idx, "label", e.target.value)}
-                        placeholder={`Speaker ${idx + 1}`}
-                        className="text-sm font-semibold text-slate-800 dark:text-slate-200 bg-transparent border-none outline-none w-32 focus:ring-0"
-                        data-testid={`input-speaker-label-${idx}`}
-                      />
-                    </div>
-                    {speakers.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeSpeaker(idx)}
-                        className="p-1.5 rounded-lg text-[#707372] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-                        data-testid={`button-remove-speaker-${idx}`}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[#707372] dark:text-slate-400 mb-1.5">
-                      IP Address
-                    </label>
-                    <input
-                      data-testid={`input-speaker-ip-${idx}`}
-                      type="text"
-                      value={sp.ipAddress}
-                      onChange={(e) => updateSpeaker(idx, "ipAddress", e.target.value)}
-                      placeholder="192.168.1.100"
-                      className={INPUT_CLS}
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-[#707372] dark:text-slate-400 mb-1.5">
-                        Username
-                      </label>
-                      <input
-                        data-testid={`input-speaker-username-${idx}`}
-                        type="text"
-                        value={sp.username}
-                        onChange={(e) => updateSpeaker(idx, "username", e.target.value)}
-                        placeholder="admin"
-                        className={INPUT_CLS}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[#707372] dark:text-slate-400 mb-1.5">
-                        Password
-                      </label>
-                      <input
-                        data-testid={`input-speaker-password-${idx}`}
-                        type="password"
-                        value={sp.password}
-                        onChange={(e) => updateSpeaker(idx, "password", e.target.value)}
-                        placeholder="••••••"
-                        className={INPUT_CLS}
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-3 pt-2 pb-2 safe-bottom">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onCancel}
-                className="flex-1 h-14 rounded-xl font-medium text-base"
-                data-testid="button-dialog-cancel"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                data-testid="button-dialog-save"
-                className="flex-1 h-14 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base"
-              >
-                {editRoom ? "Save Changes" : "Add Room"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ─── AdminPasswordDialog ──────────────────────────────────────────────────────
-function AdminPasswordDialog({ onUnlock, onCancel }: { onUnlock: () => void; onCancel: () => void }) {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) { onUnlock(); }
-    else { setError(true); setPassword(""); }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <Card
-        className="w-full sm:max-w-sm border-0 shadow-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
+      <div
+        className="font-mono text-xs text-center rounded px-1 py-0.5"
+        style={{
+          color:
+            db === 0
+              ? "hsl(30 100% 60%)"
+              : db > 0
+              ? "#ef4444"
+              : "#9ca3af",
+          minWidth: 36,
+        }}
       >
-        <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mt-3 sm:hidden" />
-        <CardContent className="p-6 pt-5 sm:pt-6">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#FF8200] flex items-center justify-center text-white">
-                <Lock className="w-5 h-5" />
-              </div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white" data-testid="text-admin-dialog-title">
-                Admin Access
-              </h2>
-            </div>
-            <button
-              onClick={onCancel}
-              className="p-2 rounded-xl text-[#707372] hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              data-testid="button-admin-dialog-close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-sm text-[#707372] dark:text-slate-400 mb-4">Enter the admin password to manage rooms</p>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <input
-                data-testid="input-admin-password"
-                type="password"
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(false); }}
-                placeholder="Enter password"
-                className={`w-full px-4 py-3.5 rounded-xl border ${error ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900" : "border-slate-200 dark:border-slate-700"} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]`}
-                required
-                autoFocus
-              />
-              {error && <p className="text-sm text-red-500 mt-2" data-testid="text-admin-error">Incorrect password</p>}
-            </div>
-            <div className="flex gap-3 pb-2 safe-bottom">
-              <Button type="button" variant="outline" onClick={onCancel} className="flex-1 h-14 rounded-xl font-medium text-base" data-testid="button-admin-cancel">
-                Cancel
-              </Button>
-              <Button type="submit" data-testid="button-admin-unlock" className="flex-1 h-14 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base">
-                Unlock
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ─── RoomTile ─────────────────────────────────────────────────────────────────
-function RoomTile({
-  room,
-  onSelect,
-  onEdit,
-  onDelete,
-  adminMode,
-}: {
-  room: Room;
-  onSelect: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  adminMode: boolean;
-}) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const speakerCount = room.speakers.length;
-
-  useEffect(() => {
-    if (confirmDelete) {
-      const timer = setTimeout(() => setConfirmDelete(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [confirmDelete]);
-
-  return (
-    <div
-      className="relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer active:scale-[0.97] overflow-hidden select-none"
-      onClick={onSelect}
-      data-testid={`tile-room-${room.id}`}
-    >
-      <div className="p-5 pb-4">
-        <div className="flex items-start justify-between mb-4">
-          {/* Speaker icon — stacked if multi */}
-          <div className="relative">
-            <div className="w-12 h-12 rounded-xl bg-[#FF8200] flex items-center justify-center text-white shadow-sm shadow-[#FF8200]/20">
-              <Speaker className="w-6 h-6" />
-            </div>
-            {speakerCount > 1 && (
-              <div
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 dark:bg-white text-white dark:text-slate-800 text-[10px] font-bold flex items-center justify-center shadow"
-                data-testid={`badge-speaker-count-${room.id}`}
-              >
-                {speakerCount}
-              </div>
-            )}
-          </div>
-
-          {adminMode && (
-            <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-              <button
-                onClick={onEdit}
-                className="p-2.5 rounded-xl text-[#707372] hover:text-[#FF8200] hover:bg-orange-50 dark:hover:bg-orange-900/20 active:bg-orange-100 transition-colors"
-                data-testid={`button-edit-room-${room.id}`}
-              >
-                <Pencil className="w-4.5 h-4.5" />
-              </button>
-              {confirmDelete ? (
-                <button
-                  onClick={onDelete}
-                  className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors"
-                  data-testid={`button-confirm-delete-room-${room.id}`}
-                >
-                  Delete?
-                </button>
-              ) : (
-                <button
-                  onClick={() => setConfirmDelete(true)}
-                  className="p-2.5 rounded-xl text-[#707372] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 active:bg-red-100 transition-colors"
-                  data-testid={`button-delete-room-${room.id}`}
-                >
-                  <Trash2 className="w-4.5 h-4.5" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate" data-testid={`text-room-name-${room.id}`}>
-          {room.name}
-        </h3>
-
-        {speakerCount === 1 ? (
-          <p className="text-sm text-[#707372] mt-1 truncate">{room.speakers[0].ipAddress}</p>
-        ) : (
-          <div className="mt-1.5 flex items-center gap-1.5">
-            <span className="text-xs font-medium text-[#FF8200]">{speakerCount} speakers</span>
-            <span className="text-[#707372]/40">·</span>
-            <span className="text-xs text-[#707372] truncate">{room.speakers.map((s) => s.label).join(", ")}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── RoomList ─────────────────────────────────────────────────────────────────
-function RoomList({
-  rooms,
-  onSelectRoom,
-  onAddRoom,
-  onEditRoom,
-  onDeleteRoom,
-  adminMode,
-  onToggleAdmin,
-  syncStatus,
-  onRefresh,
-}: {
-  rooms: Room[];
-  onSelectRoom: (room: Room) => void;
-  onAddRoom: () => void;
-  onEditRoom: (room: Room) => void;
-  onDeleteRoom: (id: string) => void;
-  adminMode: boolean;
-  onToggleAdmin: () => void;
-  syncStatus: "idle" | "synced" | "syncing" | "offline" | "error";
-  onRefresh: () => void;
-}) {
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const filteredRooms = useMemo(() => {
-    if (!searchQuery.trim()) return rooms;
-    const q = searchQuery.toLowerCase().trim();
-    return rooms.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.speakers.some((s) => s.ipAddress.includes(q) || s.label.toLowerCase().includes(q))
-    );
-  }, [rooms, searchQuery]);
-
-  return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col">
-      <header className="sticky top-0 z-10 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60 px-5 py-4 safe-top">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#FF8200] flex items-center justify-center text-white shadow-sm shadow-[#FF8200]/20">
-              <HomeIcon className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white" data-testid="text-main-title">Rooms</h1>
-              <div className="flex items-center gap-1.5">
-                <p className="text-xs text-[#707372]">
-                  {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
-                </p>
-                {syncStatus !== "idle" && <span className="text-[#707372]/40">·</span>}
-                {syncStatus === "syncing" && (
-                  <span className="flex items-center gap-1 text-xs text-[#FF8200]">
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                    <span>Syncing</span>
-                  </span>
-                )}
-                {syncStatus === "synced" && (
-                  <span className="text-xs text-emerald-500" data-testid="status-synced">Config saved</span>
-                )}
-                {(syncStatus === "offline" || syncStatus === "error") && (
-                  <button onClick={onRefresh} className="flex items-center gap-1 text-xs text-[#707372] hover:text-[#FF8200] transition-colors" data-testid="button-sync-retry">
-                    <CloudOff className="w-3 h-3" />
-                    <span>Local only — tap to retry</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {adminMode && (
-              <Button
-                onClick={onAddRoom}
-                data-testid="button-add-room"
-                className="h-11 px-5 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-sm"
-              >
-                <PlusCircle className="w-4 h-4 mr-1.5" />
-                Add Room
-              </Button>
-            )}
-            <button
-              onClick={onToggleAdmin}
-              data-testid="button-admin-toggle"
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-95 ${
-                adminMode
-                  ? "bg-[#FF8200] text-white shadow-sm shadow-[#FF8200]/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-[#707372] hover:bg-slate-200 dark:hover:bg-slate-700"
-              }`}
-            >
-              {adminMode ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 px-5 py-5">
-        <div className="max-w-3xl mx-auto">
-          {rooms.length === 0 ? (
-            <div className="text-center py-24">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[#707372] mb-5">
-                <Speaker className="w-10 h-10" />
-              </div>
-              <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2" data-testid="text-empty-title">No rooms yet</h2>
-              <p className="text-base text-[#707372] mb-8 max-w-xs mx-auto">
-                {adminMode
-                  ? "Add your first classroom to start controlling its speaker"
-                  : "Tap the lock icon to unlock admin access and add rooms"}
-              </p>
-              {adminMode && (
-                <Button
-                  onClick={onAddRoom}
-                  data-testid="button-add-room-empty"
-                  className="h-14 px-8 rounded-xl bg-[#FF8200] hover:bg-[#e67400] text-white font-semibold shadow-lg shadow-[#FF8200]/25 text-base"
-                >
-                  <PlusCircle className="w-5 h-5 mr-2" />
-                  Add Your First Room
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              {rooms.length > 5 && (
-                <div className="relative mb-4">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#707372]" />
-                  <input
-                    data-testid="input-search-rooms"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search rooms or speaker IPs..."
-                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-[#707372]/50 focus:outline-none focus:ring-2 focus:ring-[#FF8200] focus:border-transparent transition-all text-[16px]"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-lg text-[#707372] hover:text-slate-600 transition-colors"
-                      data-testid="button-clear-search"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              )}
-              {searchQuery && filteredRooms.length === 0 ? (
-                <div className="text-center py-16">
-                  <p className="text-base text-[#707372]">No rooms match "{searchQuery}"</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredRooms.map((room) => (
-                    <RoomTile
-                      key={room.id}
-                      room={room}
-                      onSelect={() => onSelectRoom(room)}
-                      onEdit={() => onEditRoom(room)}
-                      onDelete={() => onDeleteRoom(room.id)}
-                      adminMode={adminMode}
-                    />
-                  ))}
-                  {adminMode && !searchQuery && (
-                    <button
-                      onClick={onAddRoom}
-                      data-testid="button-add-room-tile"
-                      className="min-h-[130px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2.5 text-[#707372] hover:text-[#FF8200] hover:border-[#FF8200]/40 transition-all active:scale-[0.97]"
-                    >
-                      <PlusCircle className="w-7 h-7" />
-                      <span className="text-sm font-medium">Add Room</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </main>
-
-      <footer className="text-center pb-5 px-5 safe-bottom">
-        <p className="text-xs text-[#707372]/60">IP-A1 Volume Controller</p>
-      </footer>
-    </div>
-  );
-}
-
-// ─── VolumeKnobDisplay ────────────────────────────────────────────────────────
-function VolumeKnobDisplay({ volume, max }: { volume: number; max: number }) {
-  const percentage = max > 0 ? Math.round((volume / max) * 100) : 0;
-  const r = 58;
-  const circumference = 2 * Math.PI * r;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
-  const size = 180;
-  const cx = size / 2;
-
-  return (
-    <div className="relative inline-flex items-center justify-center">
-      <svg width={size} height={size} className="transform -rotate-90">
-        <circle cx={cx} cy={cx} r={r} stroke="currentColor" className="text-slate-200 dark:text-slate-700" strokeWidth="12" fill="none" />
-        <circle cx={cx} cy={cx} r={r} stroke="#FF8200" strokeWidth="12" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} className="transition-all duration-300 ease-out" />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-5xl font-bold text-slate-900 dark:text-white tabular-nums" data-testid="text-volume-percentage">
-          {percentage}%
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── useSpeakerState hook ─────────────────────────────────────────────────────
-// Manages status, volume, mute for a single speaker connection.
-function useSpeakerState(sp: SpeakerType, showToasts = true) {
-  const { toast } = useToast();
-  const [status, setStatus] = useState<SpeakerStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [changingVolume, setChangingVolume] = useState(false);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const [sliderValue, setSliderValue] = useState<number | null>(null);
-  const wasConnectedRef = useRef(true);
-
-  const connKey = `${sp.ipAddress}|${sp.username}|${sp.password}`;
-  const conn = { ipAddress: sp.ipAddress, username: sp.username, password: sp.password };
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/speaker/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(conn),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: "Could not reach speaker" }));
-        throw new Error(errData.error || "Could not reach speaker");
-      }
-      const data: SpeakerStatus = await res.json();
-      setStatus(data);
-      if (sliderValue === null) setSliderValue(data.volume);
-      if (!wasConnectedRef.current) {
-        wasConnectedRef.current = true;
-        if (showToasts) toast({ title: "Reconnected", description: `${sp.label} connection restored` });
-      }
-    } catch (err: any) {
-      setStatus((prev) =>
-        prev ? { ...prev, connected: false } : { volume: 0, max: 61, min: 0, muteState: "unmute" as const, connected: false }
-      );
-      if (wasConnectedRef.current) {
-        wasConnectedRef.current = false;
-        if (showToasts) toast({ title: "Connection Lost", description: err.message || `Could not reach ${sp.label}`, variant: "destructive" });
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [connKey, sliderValue, showToasts]);
-
-  useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, 10000);
-    return () => clearInterval(id);
-  }, [fetchStatus]);
-
-  const setVolume = useCallback(async (vol: number) => {
-    setChangingVolume(true);
-    try {
-      const res = await fetch("/api/speaker/volume/set", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...conn, volume: vol }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
-      const data = await res.json();
-      setStatus((prev) => prev ? { ...prev, volume: data.volume, connected: true } : prev);
-      setSliderValue(data.volume);
-    } catch (err: any) {
-      if (showToasts) toast({ title: "Volume Error", description: err.message, variant: "destructive" });
-    } finally { setChangingVolume(false); }
-  }, [connKey, showToasts]);
-
-  const handleSliderChange = useCallback((value: number[]) => {
-    const newVol = value[0];
-    setSliderValue(newVol);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setVolume(newVol), 300);
-  }, [setVolume]);
-
-  const toggleMute = useCallback(async () => {
-    if (!status) return;
-    const newState = status.muteState === "mute" ? "unmute" : "mute";
-    try {
-      const res = await fetch("/api/speaker/mute/set", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...conn, mute_state: newState }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
-      const data = await res.json();
-      setStatus((prev) => prev ? { ...prev, muteState: data.mute_state, connected: true } : prev);
-      if (showToasts) toast({ title: data.mute_state === "mute" ? "Speaker Muted" : "Speaker Unmuted" });
-    } catch (err: any) {
-      if (showToasts) toast({ title: "Mute Error", description: err.message, variant: "destructive" });
-    }
-  }, [status, connKey, showToasts]);
-
-  const setMuteState = useCallback(async (newState: "mute" | "unmute") => {
-    try {
-      const res = await fetch("/api/speaker/mute/set", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...conn, mute_state: newState }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
-      const data = await res.json();
-      setStatus((prev) => prev ? { ...prev, muteState: data.mute_state, connected: true } : prev);
-    } catch (err: any) {
-      if (showToasts) toast({ title: "Mute Error", description: err.message, variant: "destructive" });
-    }
-  }, [connKey, showToasts]);
-
-  const adjustVolume = useCallback(async (direction: "increment" | "decrement") => {
-    try {
-      const res = await fetch(`/api/speaker/volume/${direction}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(conn),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
-      const data = await res.json();
-      setStatus((prev) => prev ? { ...prev, volume: data.volume, connected: true } : prev);
-      setSliderValue(data.volume);
-    } catch (err: any) {
-      if (showToasts) toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  }, [connKey, showToasts]);
-
-  const currentVolume = sliderValue ?? status?.volume ?? 0;
-  const maxVolume = status?.max ?? 61;
-  const isMuted = status?.muteState === "mute";
-
-  return { status, loading, changingVolume, currentVolume, maxVolume, isMuted, setVolume, handleSliderChange, toggleMute, setMuteState, adjustVolume, setSliderValue };
-}
-
-// ─── VolumeControls (shared UI block) ────────────────────────────────────────
-function VolumeControls({
-  currentVolume,
-  maxVolume,
-  isMuted,
-  changingVolume,
-  onSliderChange,
-  onDecrement,
-  onIncrement,
-  onMuteToggle,
-  onPreset,
-  muteLabel,
-  testPrefix = "",
-}: {
-  currentVolume: number;
-  maxVolume: number;
-  isMuted: boolean;
-  changingVolume: boolean;
-  onSliderChange: (v: number[]) => void;
-  onDecrement: () => void;
-  onIncrement: () => void;
-  onMuteToggle: () => void;
-  onPreset: (v: number) => void;
-  muteLabel?: string;
-  testPrefix?: string;
-}) {
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onDecrement}
-          className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#707372] hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
-          data-testid={`${testPrefix}button-volume-down`}
-        >
-          <Minus className="w-6 h-6" />
-        </button>
-        <div className="flex-1 py-2">
-          <Slider
-            data-testid={`${testPrefix}slider-volume`}
-            value={[currentVolume]}
-            min={0}
-            max={maxVolume}
-            step={1}
-            onValueChange={onSliderChange}
-            className="cursor-pointer touch-none"
-            disabled={changingVolume}
-          />
-        </div>
-        <button
-          onClick={onIncrement}
-          className="flex-shrink-0 w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#707372] hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-90 active:bg-slate-100 transition-all shadow-sm"
-          data-testid={`${testPrefix}button-volume-up`}
-        >
-          <Plus className="w-6 h-6" />
-        </button>
-      </div>
-      <div className="flex justify-between text-xs text-[#707372] px-[72px]">
-        <span>Mute</span><span>Max</span>
+        {dbStr}
       </div>
 
       <button
-        onClick={onMuteToggle}
-        data-testid={`${testPrefix}button-mute`}
-        className={`w-full h-16 rounded-2xl font-semibold text-lg flex items-center justify-center gap-3 transition-all duration-200 active:scale-[0.97] ${
-          isMuted
-            ? "bg-red-500 hover:bg-red-600 active:bg-red-700 text-white shadow-lg shadow-red-500/25"
-            : "bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm"
-        }`}
+        onClick={onToggle}
+        className="w-full rounded-lg py-1.5 text-xs font-bold uppercase tracking-wide transition-all"
+        style={{
+          background: on ? "hsl(30 100% 52%)" : "hsl(220 15% 18%)",
+          color: on ? "#fff" : "#6b7280",
+          border: `1px solid ${on ? "hsl(30 100% 40%)" : "hsl(220 15% 26%)"}`,
+        }}
+        data-testid={`onoff-${label}`}
       >
-        <VolumeX className="w-6 h-6" />
-        {isMuted ? `Unmute${muteLabel ? ` ${muteLabel}` : ""}` : `Mute${muteLabel ? ` ${muteLabel}` : ""}`}
+        {on ? "ON" : "OFF"}
       </button>
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-3 gap-4">
-        {VOLUME_PRESETS.map((preset) => {
-          const isActive = currentVolume >= preset.value - 2 && currentVolume <= preset.value + 2;
-          const PresetIcon = preset.icon;
-          return (
+type MatrixState = ReturnType<typeof useMixerWs>;
+
+function MatrixGrid({
+  state,
+  onToggle,
+  onGainChange,
+}: {
+  state: MatrixState;
+  onToggle: (srcIdx: number, bus: number) => void;
+  onGainChange: (srcIdx: number, bus: number, val: number) => void;
+}) {
+  const [selected, setSelected] = useState<{ src: number; bus: number } | null>(null);
+
+  const sourceLabels = [
+    "IN 1", "IN 2", "IN 3", "IN 4",
+    "IN 5", "IN 6", "IN 7", "IN 8",
+    "ST 1", "ST 2",
+  ];
+  const busLabels = ["Bus 1", "Bus 2", "Bus 3", "Bus 4"];
+
+  const sel = selected;
+  const selGain = sel != null ? (state.inputMatrixGain[sel.src]?.[sel.bus] ?? 0x46) : 0x46;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h3 className="text-xs uppercase tracking-widest text-gray-500 mb-3">
+          Input Matrix — Sources → Buses
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left text-xs text-gray-500 pb-2 pr-4" style={{ minWidth: 56 }}>
+                  Source
+                </th>
+                {busLabels.map((b, i) => (
+                  <th
+                    key={i}
+                    className="text-center text-xs text-gray-400 pb-2 px-1"
+                    style={{ minWidth: 66 }}
+                  >
+                    {b}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sourceLabels.map((src, srcIdx) => (
+                <tr key={srcIdx}>
+                  <td className="text-xs text-gray-300 pr-4 py-1 font-mono font-semibold">
+                    {src}
+                  </td>
+                  {busLabels.map((_, bus) => {
+                    const isOn = state.inputMatrix[srcIdx]?.[bus] ?? false;
+                    const isSel = sel?.src === srcIdx && sel?.bus === bus;
+                    const gainVal = state.inputMatrixGain[srcIdx]?.[bus] ?? 0x46;
+                    const gainDb = crosspointValueToDb(gainVal);
+                    return (
+                      <td key={bus} className="px-1 py-1 text-center">
+                        <button
+                          onClick={() => {
+                            onToggle(srcIdx, bus);
+                            setSelected(isSel ? null : { src: srcIdx, bus });
+                          }}
+                          className="rounded-lg flex flex-col items-center justify-center gap-1 transition-all"
+                          style={{
+                            width: 60,
+                            height: 52,
+                            background: isOn
+                              ? "hsl(30 100% 16%)"
+                              : "hsl(220 15% 15%)",
+                            border: `2px solid ${
+                              isSel
+                                ? "hsl(30 100% 52%)"
+                                : isOn
+                                ? "hsl(30 100% 38%)"
+                                : "hsl(220 15% 24%)"
+                            }`,
+                          }}
+                          data-testid={`matrix-in-${srcIdx}-${bus}`}
+                        >
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{
+                              background: isOn
+                                ? "hsl(30 100% 55%)"
+                                : "hsl(220 15% 30%)",
+                              boxShadow: isOn
+                                ? "0 0 6px hsl(30 100% 55%)"
+                                : "none",
+                            }}
+                          />
+                          <span
+                            className="text-[9px] font-mono"
+                            style={{ color: isOn ? "#e2a430" : "#4b5563" }}
+                          >
+                            {formatDb(gainDb)}
+                          </span>
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {sel != null && (
+          <div
+            className="mt-3 p-3 rounded-xl flex items-center gap-3"
+            style={{
+              background: "hsl(220 15% 14%)",
+              border: "1px solid hsl(220 15% 22%)",
+            }}
+          >
+            <span className="text-sm text-gray-300 shrink-0">
+              {sourceLabels[sel.src]} → {busLabels[sel.bus]} Gain:
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={70}
+              value={selGain}
+              onChange={(e) =>
+                onGainChange(sel.src, sel.bus, parseInt(e.target.value))
+              }
+              className="flex-1"
+              data-testid="matrix-gain-slider"
+            />
+            <span className="text-sm font-mono text-amber-400 w-14 text-right">
+              {formatDb(crosspointValueToDb(selGain))}dB
+            </span>
             <button
-              key={preset.label}
-              onClick={() => onPreset(preset.value)}
-              data-testid={`${testPrefix}button-preset-${preset.label.toLowerCase()}`}
-              className={`h-20 rounded-2xl font-semibold text-sm flex flex-col items-center justify-center gap-2 transition-all duration-200 active:scale-95 ${
-                isActive
-                  ? "bg-[#FF8200] text-white shadow-lg shadow-[#FF8200]/25"
-                  : "bg-white dark:bg-slate-800 text-[#707372] border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 shadow-sm"
-              }`}
+              onClick={() => setSelected(null)}
+              className="text-gray-500 hover:text-white ml-1 p-1"
             >
-              <PresetIcon className="w-5 h-5" />
-              {preset.label}
+              <X size={14} />
             </button>
-          );
-        })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-xs uppercase tracking-widest text-gray-500 mb-3">
+          Output Matrix — Buses → Rec Out
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="border-collapse">
+            <thead>
+              <tr>
+                <th
+                  className="text-left text-xs text-gray-500 pb-2 pr-4"
+                  style={{ minWidth: 56 }}
+                >
+                  Bus
+                </th>
+                {["Rec L", "Rec R"].map((r, i) => (
+                  <th
+                    key={i}
+                    className="text-center text-xs text-gray-400 pb-2 px-1"
+                    style={{ minWidth: 66 }}
+                  >
+                    {r}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[0, 1, 2, 3].map((bus) => (
+                <tr key={bus}>
+                  <td className="text-xs text-gray-300 pr-4 py-1 font-mono font-semibold">
+                    Bus {bus + 1}
+                  </td>
+                  {[0, 1].map((dst) => {
+                    const isOn = state.outputMatrix[bus]?.[dst] ?? false;
+                    return (
+                      <td key={dst} className="px-1 py-1 text-center">
+                        <button
+                          onClick={() => {
+                            api("/api/matrix/output", {
+                              bus,
+                              dstCh: dst,
+                              on: !isOn,
+                            }).catch(() => {});
+                          }}
+                          className="rounded-lg flex items-center justify-center transition-all"
+                          style={{
+                            width: 60,
+                            height: 52,
+                            background: isOn
+                              ? "hsl(200 70% 18%)"
+                              : "hsl(220 15% 15%)",
+                            border: `2px solid ${
+                              isOn ? "hsl(200 70% 42%)" : "hsl(220 15% 24%)"
+                            }`,
+                          }}
+                          data-testid={`matrix-out-${bus}-${dst}`}
+                        >
+                          <div
+                            className="w-4 h-4 rounded-full"
+                            style={{
+                              background: isOn
+                                ? "hsl(200 70% 55%)"
+                                : "hsl(220 15% 28%)",
+                              boxShadow: isOn
+                                ? "0 0 8px hsl(200 70% 55%)"
+                                : "none",
+                            }}
+                          />
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── IndividualSpeakerCard ────────────────────────────────────────────────────
-// Self-contained card for one speaker in individual mode.
-function IndividualSpeakerCard({ speaker }: { speaker: SpeakerType }) {
-  const ctrl = useSpeakerState(speaker, true);
+function PresetsPanel({ currentPreset }: { currentPreset: number }) {
+  const { toast } = useToast();
+  const [storing, setStoring] = useState<number | null>(null);
+
+  const loadPreset = async (p: number) => {
+    try {
+      await api("/api/preset/load", { preset: p });
+      toast({ title: `Preset ${p + 1} loaded` });
+    } catch {
+      toast({ title: "Failed to load preset", variant: "destructive" });
+    }
+  };
+
+  const storePreset = async (p: number) => {
+    setStoring(p);
+    try {
+      await api("/api/preset/store", { preset: p });
+      toast({ title: `Preset ${p + 1} saved` });
+    } catch {
+      toast({ title: "Failed to save preset", variant: "destructive" });
+    } finally {
+      setStoring(null);
+    }
+  };
 
   return (
     <div
-      className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden"
-      data-testid={`card-speaker-${speaker.id}`}
+      className="grid grid-cols-4 gap-3"
+      data-testid="presets-panel"
     >
-      {/* Card header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 dark:border-slate-700/60">
-        <div className="w-8 h-8 rounded-lg bg-[#FF8200] flex items-center justify-center flex-shrink-0">
-          <Speaker className="w-4 h-4 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{speaker.label}</p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ctrl.status?.connected ? "bg-emerald-500" : "bg-red-400"}`} />
-            <span className="text-xs text-[#707372] truncate">{speaker.ipAddress}</span>
+      {Array.from({ length: 16 }, (_, i) => {
+        const isActive = i === currentPreset;
+        return (
+          <div
+            key={i}
+            className="rounded-xl flex flex-col items-center gap-2 p-3"
+            style={{
+              background: isActive
+                ? "hsl(30 100% 14%)"
+                : "hsl(220 15% 13%)",
+              border: `2px solid ${
+                isActive
+                  ? "hsl(30 100% 42%)"
+                  : "hsl(220 15% 22%)"
+              }`,
+            }}
+            data-testid={`preset-slot-${i}`}
+          >
+            <div
+              className="font-bold text-base"
+              style={{
+                color: isActive ? "hsl(30 100% 65%)" : "#9ca3af",
+              }}
+            >
+              P{i + 1}
+            </div>
+            {isActive && (
+              <div className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: "hsl(30 100% 20%)", color: "hsl(30 100% 65%)" }}>
+                Active
+              </div>
+            )}
+            <div className="flex gap-1 w-full mt-1">
+              <button
+                onClick={() => loadPreset(i)}
+                className="flex-1 flex items-center justify-center rounded-lg py-2 transition-all text-xs gap-1"
+                style={{
+                  background: "hsl(220 15% 20%)",
+                  color: "#9ca3af",
+                  border: "1px solid hsl(220 15% 28%)",
+                }}
+                data-testid={`load-preset-${i}`}
+              >
+                <FolderOpen size={11} />
+                Load
+              </button>
+              <button
+                onClick={() => storePreset(i)}
+                disabled={storing === i}
+                className="flex-1 flex items-center justify-center rounded-lg py-2 transition-all text-xs gap-1"
+                style={{
+                  background: "hsl(220 15% 20%)",
+                  color: "#9ca3af",
+                  border: "1px solid hsl(220 15% 28%)",
+                }}
+                data-testid={`store-preset-${i}`}
+              >
+                <Save size={11} />
+                {storing === i ? "..." : "Save"}
+              </button>
+            </div>
           </div>
-        </div>
-        <span className="text-2xl font-bold text-slate-700 dark:text-slate-200 tabular-nums">
-          {ctrl.maxVolume > 0 ? Math.round((ctrl.currentVolume / ctrl.maxVolume) * 100) : 0}%
-        </span>
-      </div>
-
-      {ctrl.loading ? (
-        <div className="px-5 py-6 text-center">
-          <p className="text-sm text-[#707372]">Connecting…</p>
-        </div>
-      ) : !ctrl.status?.connected ? (
-        <div className="px-5 py-4 flex items-center gap-2 text-red-500">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <p className="text-sm">Speaker unreachable</p>
-        </div>
-      ) : (
-        <div className="px-5 py-4">
-          <VolumeControls
-            currentVolume={ctrl.currentVolume}
-            maxVolume={ctrl.maxVolume}
-            isMuted={ctrl.isMuted}
-            changingVolume={ctrl.changingVolume}
-            onSliderChange={ctrl.handleSliderChange}
-            onDecrement={() => ctrl.adjustVolume("decrement")}
-            onIncrement={() => ctrl.adjustVolume("increment")}
-            onMuteToggle={ctrl.toggleMute}
-            onPreset={(v) => { ctrl.setSliderValue(v); ctrl.setVolume(v); }}
-            testPrefix={`sp-${speaker.id}-`}
-          />
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
 
-// ─── ControlPanel ─────────────────────────────────────────────────────────────
-function ControlPanel({ room, onBack }: { room: Room; onBack: () => void }) {
+function ConnectForm({
+  initialIp,
+  initialPort,
+  onDone,
+}: {
+  initialIp?: string;
+  initialPort?: number;
+  onDone?: () => void;
+}) {
+  const [ip, setIp] = useState(initialIp || "");
+  const [port, setPort] = useState(String(initialPort || 3000));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const { toast } = useToast();
-  const isMulti = room.speakers.length > 1;
-  const [syncMode, setSyncMode] = useState(room.syncMode ?? true);
 
-  // Primary speaker state (always active — drives the sync controls + single-speaker mode)
-  const primary = useSpeakerState(room.speakers[0], !isMulti || syncMode);
-
-  // For sync mode status of all other speakers (connection dots only)
-  const [otherStatuses, setOtherStatuses] = useState<(SpeakerStatus | null)[]>(
-    () => room.speakers.slice(1).map(() => null)
-  );
-
-  // Poll non-primary speakers for connection status when in sync mode
-  useEffect(() => {
-    if (!isMulti || !syncMode) return;
-    const others = room.speakers.slice(1);
-    if (others.length === 0) return;
-
-    const poll = async () => {
-      const results = await Promise.allSettled(
-        others.map((sp) =>
-          fetch("/api/speaker/status", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ipAddress: sp.ipAddress, username: sp.username, password: sp.password }),
-          }).then((r) => {
-            if (!r.ok) throw new Error("failed");
-            return r.json() as Promise<SpeakerStatus>;
-          })
-        )
-      );
-      setOtherStatuses(
-        results.map((r) =>
-          r.status === "fulfilled"
-            ? r.value
-            : { volume: 0, max: 61, min: 0, muteState: "unmute" as const, connected: false }
-        )
-      );
-    };
-
-    poll();
-    const id = setInterval(poll, 10000);
-    return () => clearInterval(id);
-  }, [isMulti, syncMode, room.speakers.map((s) => s.ipAddress).join(",")]);
-
-  // Fire volume to all speakers in sync mode
-  const setVolumeAll = useCallback(async (vol: number) => {
-    primary.setSliderValue(vol);
-    await Promise.allSettled(
-      room.speakers.map((sp) =>
-        fetch("/api/speaker/volume/set", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ipAddress: sp.ipAddress, username: sp.username, password: sp.password, volume: vol }),
-        })
-      )
-    );
-    primary.setVolume(vol);
-  }, [room.speakers, primary.setVolume, primary.setSliderValue]);
-
-  const handleSyncSlider = useCallback((value: number[]) => {
-    primary.setSliderValue(value[0]);
-    setVolumeAll(value[0]);
-  }, [setVolumeAll, primary.setSliderValue]);
-
-  // Fire mute to all speakers in sync mode
-  const toggleMuteAll = useCallback(async () => {
-    if (!primary.status) return;
-    const newState = primary.isMuted ? "unmute" : "mute";
-    await Promise.allSettled(
-      room.speakers.map((sp) =>
-        fetch("/api/speaker/mute/set", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ipAddress: sp.ipAddress, username: sp.username, password: sp.password, mute_state: newState }),
-        })
-      )
-    );
-    primary.setMuteState(newState);
-    toast({ title: newState === "mute" ? "All Speakers Muted" : "All Speakers Unmuted" });
-  }, [primary.status, primary.isMuted, primary.setMuteState, room.speakers, toast]);
-
-  // All speaker connection statuses (primary + others)
-  const allStatuses = [primary.status, ...otherStatuses];
-  const connectedCount = allStatuses.filter((s) => s?.connected).length;
-
-  if (primary.loading && !isMulti) {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-[#FF8200] text-white mb-5 animate-pulse shadow-lg shadow-[#FF8200]/25">
-            <Speaker className="w-10 h-10" />
-          </div>
-          <p className="text-base text-[#707372] font-medium" data-testid="text-connecting">Connecting to {room.name}…</p>
-        </div>
-      </div>
-    );
-  }
+  const handleConnect = async () => {
+    if (!ip.trim()) {
+      setError("Enter the mixer IP address");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/connect", {
+        ip: ip.trim(),
+        port: parseInt(port) || 3000,
+      });
+      toast({ title: "Connecting to mixer..." });
+      onDone?.();
+    } catch (e: any) {
+      setError(e.message || "Connection failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-orange-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-700/60 px-5 py-3 safe-top">
-        <div className="flex items-center gap-3 max-w-lg mx-auto">
-          <button
-            onClick={onBack}
-            className="p-3 -ml-3 rounded-xl text-[#707372] hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 active:bg-slate-200 transition-colors"
-            data-testid="button-back"
+    <div className="flex flex-col gap-4">
+      <div>
+        <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1.5">
+          Mixer IP Address
+        </label>
+        <input
+          type="text"
+          value={ip}
+          onChange={(e) => setIp(e.target.value)}
+          placeholder="192.168.1.100"
+          className="w-full rounded-xl px-4 py-3 text-base"
+          style={{
+            background: "hsl(220 15% 16%)",
+            border: "1px solid hsl(220 15% 26%)",
+            color: "#fff",
+            outline: "none",
+          }}
+          data-testid="input-mixer-ip"
+          onKeyDown={(e) => e.key === "Enter" && handleConnect()}
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1.5">
+          TCP Port
+        </label>
+        <input
+          type="number"
+          value={port}
+          onChange={(e) => setPort(e.target.value)}
+          className="w-full rounded-xl px-4 py-3 text-base"
+          style={{
+            background: "hsl(220 15% 16%)",
+            border: "1px solid hsl(220 15% 26%)",
+            color: "#fff",
+            outline: "none",
+          }}
+          data-testid="input-mixer-port"
+          onKeyDown={(e) => e.key === "Enter" && handleConnect()}
+        />
+      </div>
+      {error && (
+        <div
+          className="text-sm rounded-xl px-4 py-3"
+          style={{
+            background: "hsl(0 60% 12%)",
+            color: "#f87171",
+            border: "1px solid hsl(0 60% 24%)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      <button
+        onClick={handleConnect}
+        disabled={busy}
+        className="w-full rounded-xl py-4 font-bold text-white text-base tracking-wide transition-all"
+        style={{
+          background: busy ? "hsl(30 100% 35%)" : "hsl(30 100% 52%)",
+        }}
+        data-testid="button-connect"
+      >
+        {busy ? "Connecting..." : "Connect to Mixer"}
+      </button>
+    </div>
+  );
+}
+
+type Tab = "channels" | "matrix" | "presets";
+
+const MONO_IN_COLOR = "hsl(220 70% 42%)";
+const STEREO_IN_COLOR = "hsl(270 60% 48%)";
+const MONO_OUT_COLOR = "hsl(140 55% 33%)";
+const REC_OUT_COLOR = "hsl(0 65% 42%)";
+
+export default function Home() {
+  const state = useMixerWs();
+  const { toast } = useToast();
+  const [tab, setTab] = useState<Tab>("channels");
+  const [showSettings, setShowSettings] = useState(false);
+  const [serverInfo, setServerInfo] = useState<{
+    lanIP?: string;
+    port?: number;
+  } | null>(null);
+
+  const serverInfoFetchedRef = useRef(false);
+  if (!serverInfoFetchedRef.current) {
+    serverInfoFetchedRef.current = true;
+    fetch("/api/info")
+      .then((r) => r.json())
+      .then((d) => setServerInfo(d))
+      .catch(() => {});
+  }
+
+  const setFader = useCallback(
+    (attr: number, ch: number, pos: number) => {
+      api("/api/fader", { attr, ch, position: pos }).catch(() => {});
+    },
+    []
+  );
+
+  const toggleOnOff = useCallback(
+    (attr: number, ch: number, currentOn: boolean) => {
+      api("/api/onoff", { attr, ch, on: !currentOn }).catch(() => {});
+    },
+    []
+  );
+
+  const toggleInputMatrix = useCallback(
+    (srcIdx: number, bus: number) => {
+      const srcAttr = srcIdx < 8 ? 0 : 1;
+      const srcCh = srcIdx < 8 ? srcIdx : srcIdx - 8;
+      const currentOn = state.inputMatrix[srcIdx]?.[bus] ?? false;
+      api("/api/matrix/input", {
+        srcAttr,
+        srcCh,
+        bus,
+        on: !currentOn,
+      }).catch(() => {});
+    },
+    [state.inputMatrix]
+  );
+
+  const setInputGain = useCallback(
+    (srcIdx: number, bus: number, val: number) => {
+      const srcAttr = srcIdx < 8 ? 0 : 1;
+      const srcCh = srcIdx < 8 ? srcIdx : srcIdx - 8;
+      api("/api/matrix/input-gain", {
+        srcAttr,
+        srcCh,
+        bus,
+        value: val,
+      }).catch(() => {});
+    },
+    []
+  );
+
+  const disconnectMixer = async () => {
+    await api("/api/disconnect", {});
+    toast({ title: "Disconnected from mixer" });
+  };
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: "hsl(220 20% 7%)", color: "#e2e8f0" }}
+    >
+      <header
+        className="flex items-center px-4 py-3 gap-3 shrink-0"
+        style={{
+          background: "hsl(220 20% 10%)",
+          borderBottom: "1px solid hsl(220 15% 18%)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm"
+            style={{ background: "hsl(30 100% 52%)" }}
           >
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 truncate" data-testid="text-room-title">
-              {room.name}
-            </h2>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              {isMulti ? (
-                <>
-                  <span className="text-xs text-[#707372]">{connectedCount}/{room.speakers.length} connected</span>
-                  {/* Speaker dots */}
-                  <span className="text-[#707372]/40 mx-0.5">·</span>
-                  <div className="flex gap-1">
-                    {room.speakers.map((sp, i) => (
-                      <div
-                        key={sp.id}
-                        title={sp.label}
-                        className={`w-2 h-2 rounded-full ${allStatuses[i]?.connected ? "bg-emerald-500" : "bg-red-400"}`}
-                        data-testid={`dot-speaker-${sp.id}`}
+            M
+          </div>
+          <div>
+            <div className="font-bold text-sm tracking-wide leading-none">
+              M-864D
+            </div>
+            <div className="text-[9px] uppercase tracking-widest text-gray-500 mt-0.5">
+              Mixer Controller
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1" />
+
+        {state.connected ? (
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+            style={{
+              background: "hsl(140 60% 8%)",
+              border: "1px solid hsl(140 60% 22%)",
+              color: "hsl(140 60% 55%)",
+            }}
+            data-testid="status-connected"
+          >
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{
+                background: "hsl(140 60% 55%)",
+                boxShadow: "0 0 6px hsl(140 60% 55%)",
+                animation: "pulse 2s infinite",
+              }}
+            />
+            {state.ip}:{state.port}
+          </div>
+        ) : (
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+            style={{
+              background: "hsl(0 60% 8%)",
+              border: "1px solid hsl(0 60% 22%)",
+              color: "hsl(0 60% 55%)",
+            }}
+            data-testid="status-disconnected"
+          >
+            <WifiOff size={12} />
+            Not connected
+          </div>
+        )}
+
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="p-2 rounded-xl transition-all"
+          style={{
+            background: showSettings
+              ? "hsl(30 100% 18%)"
+              : "hsl(220 15% 16%)",
+            color: showSettings ? "hsl(30 100% 60%)" : "#9ca3af",
+          }}
+          data-testid="button-settings"
+        >
+          <Settings size={18} />
+        </button>
+      </header>
+
+      {showSettings && (
+        <div
+          className="shrink-0 p-4"
+          style={{
+            background: "hsl(220 20% 9%)",
+            borderBottom: "1px solid hsl(220 15% 18%)",
+          }}
+        >
+          <div className="max-w-sm mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <span className="font-semibold text-gray-300">
+                Mixer Connection
+              </span>
+              {state.connected && (
+                <button
+                  onClick={disconnectMixer}
+                  className="text-xs px-3 py-1.5 rounded-lg"
+                  style={{
+                    color: "#f87171",
+                    border: "1px solid hsl(0 60% 24%)",
+                    background: "hsl(0 60% 10%)",
+                  }}
+                  data-testid="button-disconnect"
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
+            <ConnectForm
+              initialIp={state.ip}
+              initialPort={state.port}
+              onDone={() => setShowSettings(false)}
+            />
+            {serverInfo?.lanIP && (
+              <div
+                className="mt-4 p-3 rounded-xl"
+                style={{
+                  background: "hsl(220 15% 14%)",
+                  border: "1px solid hsl(220 15% 22%)",
+                }}
+              >
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                  Network address for tablets
+                </div>
+                <div className="font-mono text-sm text-amber-400">
+                  http://{serverInfo.lanIP}:{serverInfo.port}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!state.connected && !showSettings && (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div
+            className="w-full max-w-sm rounded-2xl p-8"
+            style={{
+              background: "hsl(220 20% 10%)",
+              border: "1px solid hsl(220 15% 20%)",
+            }}
+          >
+            <div className="text-center mb-6">
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl mx-auto mb-4"
+                style={{ background: "hsl(30 100% 52%)" }}
+              >
+                M
+              </div>
+              <h1 className="text-xl font-bold">M-864D Controller</h1>
+              <p className="text-sm text-gray-400 mt-1">
+                Enter the mixer's IP address to connect
+              </p>
+            </div>
+            <ConnectForm />
+          </div>
+        </div>
+      )}
+
+      {state.connected && (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <div
+            className="flex gap-1 px-4 pt-3 shrink-0"
+            style={{ borderBottom: "1px solid hsl(220 15% 18%)" }}
+          >
+            {(["channels", "matrix", "presets"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className="px-5 py-2 rounded-t-lg text-sm font-medium capitalize transition-all"
+                style={{
+                  background:
+                    tab === t ? "hsl(220 15% 14%)" : "transparent",
+                  color: tab === t ? "#e2e8f0" : "#6b7280",
+                  borderBottom:
+                    tab === t
+                      ? "2px solid hsl(30 100% 52%)"
+                      : "2px solid transparent",
+                }}
+                data-testid={`tab-${t}`}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="flex-1 overflow-auto p-4"
+            style={{ background: "hsl(220 15% 10%)" }}
+          >
+            {tab === "channels" && (
+              <div className="flex flex-col gap-6">
+                <section>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                    <span
+                      className="text-[10px] uppercase tracking-widest font-semibold px-2"
+                      style={{ color: MONO_IN_COLOR }}
+                    >
+                      Mono Inputs 1–8
+                    </span>
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {Array.from({ length: 8 }, (_, i) => (
+                      <ChannelStrip
+                        key={i}
+                        label={`IN ${i + 1}`}
+                        position={state.monoInFader[i] ?? 0x35}
+                        on={state.monoInOn[i] ?? true}
+                        level={state.monoInLevel[i] ?? 0}
+                        onFaderChange={(pos) => setFader(0, i, pos)}
+                        onToggle={() =>
+                          toggleOnOff(0, i, state.monoInOn[i] ?? true)
+                        }
+                        color={MONO_IN_COLOR}
                       />
                     ))}
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${primary.status?.connected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-red-500 shadow-sm shadow-red-500/50"}`} data-testid="status-connection" />
-                  <span className="text-xs text-[#707372] truncate">{room.speakers[0].ipAddress}</span>
-                </>
-              )}
-            </div>
-          </div>
+                </section>
 
-          {/* Sync / Individual toggle for multi-speaker rooms */}
-          {isMulti && (
-            <button
-              onClick={() => setSyncMode((v) => !v)}
-              data-testid="button-sync-toggle"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 ${
-                syncMode
-                  ? "bg-[#FF8200] text-white shadow-sm shadow-[#FF8200]/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-[#707372] hover:bg-slate-200 dark:hover:bg-slate-700"
-              }`}
-            >
-              {syncMode ? <Link2 className="w-3.5 h-3.5" /> : <Unlink className="w-3.5 h-3.5" />}
-              {syncMode ? "Synced" : "Individual"}
-            </button>
-          )}
-        </div>
-      </header>
+                <section>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                    <span
+                      className="text-[10px] uppercase tracking-widest font-semibold px-2"
+                      style={{ color: STEREO_IN_COLOR }}
+                    >
+                      Stereo Inputs 1–2
+                    </span>
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {Array.from({ length: 2 }, (_, i) => (
+                      <ChannelStrip
+                        key={i}
+                        label={`ST ${i + 1}`}
+                        position={state.stereoInFader[i] ?? 0x35}
+                        on={state.stereoInOn[i] ?? true}
+                        level={Math.max(
+                          state.stereoInLevel[i * 2] ?? 0,
+                          state.stereoInLevel[i * 2 + 1] ?? 0
+                        )}
+                        onFaderChange={(pos) => setFader(1, i, pos)}
+                        onToggle={() =>
+                          toggleOnOff(1, i, state.stereoInOn[i] ?? true)
+                        }
+                        color={STEREO_IN_COLOR}
+                      />
+                    ))}
+                  </div>
+                </section>
 
-      {/* ── SYNC MODE (or single speaker) ── */}
-      {syncMode && (
-        <>
-          {!primary.status?.connected && (
-            <div className="mx-5 mt-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center gap-2.5">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700 dark:text-red-400">
-                {isMulti ? "Primary speaker unreachable" : "Speaker unreachable — check network and credentials"}
-              </p>
-            </div>
-          )}
+                <section>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                    <span
+                      className="text-[10px] uppercase tracking-widest font-semibold px-2"
+                      style={{ color: MONO_OUT_COLOR }}
+                    >
+                      Mono Outputs 1–4
+                    </span>
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {Array.from({ length: 4 }, (_, i) => (
+                      <ChannelStrip
+                        key={i}
+                        label={`OUT ${i + 1}`}
+                        position={state.monoOutFader[i] ?? 0x35}
+                        on={state.monoOutOn[i] ?? true}
+                        level={state.monoOutLevel[i] ?? 0}
+                        onFaderChange={(pos) => setFader(2, i, pos)}
+                        onToggle={() =>
+                          toggleOnOff(2, i, state.monoOutOn[i] ?? true)
+                        }
+                        color={MONO_OUT_COLOR}
+                      />
+                    ))}
+                  </div>
+                </section>
 
-          <main className="flex-1 flex flex-col items-center justify-center px-5 py-8">
-            <div className="w-full max-w-sm space-y-10">
-              <div className="text-center">
-                <VolumeKnobDisplay volume={primary.currentVolume} max={primary.maxVolume} />
-                {isMulti && (
-                  <p className="text-xs text-[#707372] mt-2">Controls all {room.speakers.length} speakers together</p>
-                )}
+                <section>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                    <span
+                      className="text-[10px] uppercase tracking-widest font-semibold px-2"
+                      style={{ color: REC_OUT_COLOR }}
+                    >
+                      Rec Out L/R
+                    </span>
+                    <div
+                      className="h-px flex-1"
+                      style={{ background: "hsl(220 15% 22%)" }}
+                    />
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {[
+                      { label: "REC L", i: 0 },
+                      { label: "REC R", i: 1 },
+                    ].map(({ label, i }) => (
+                      <ChannelStrip
+                        key={i}
+                        label={label}
+                        position={state.recOutFader[i] ?? 0x35}
+                        on={state.recOutOn[i] ?? true}
+                        level={0}
+                        onFaderChange={(pos) => setFader(3, i, pos)}
+                        onToggle={() =>
+                          toggleOnOff(3, i, state.recOutOn[i] ?? true)
+                        }
+                        color={REC_OUT_COLOR}
+                      />
+                    ))}
+                  </div>
+                </section>
               </div>
+            )}
 
-              <VolumeControls
-                currentVolume={primary.currentVolume}
-                maxVolume={primary.maxVolume}
-                isMuted={primary.isMuted}
-                changingVolume={primary.changingVolume}
-                onSliderChange={isMulti ? handleSyncSlider : primary.handleSliderChange}
-                onDecrement={() => isMulti ? setVolumeAll(Math.max(0, primary.currentVolume - 1)) : primary.adjustVolume("decrement")}
-                onIncrement={() => isMulti ? setVolumeAll(Math.min(primary.maxVolume, primary.currentVolume + 1)) : primary.adjustVolume("increment")}
-                onMuteToggle={isMulti ? toggleMuteAll : primary.toggleMute}
-                onPreset={(v) => { primary.setSliderValue(v); isMulti ? setVolumeAll(v) : primary.setVolume(v); }}
-                muteLabel={isMulti ? "All" : "Speaker"}
+            {tab === "matrix" && (
+              <MatrixGrid
+                state={state}
+                onToggle={toggleInputMatrix}
+                onGainChange={setInputGain}
               />
+            )}
 
-              {/* Per-speaker connection status strip (multi only) */}
-              {isMulti && (
-                <div className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60 shadow-sm">
-                  {room.speakers.map((sp, i) => (
-                    <div key={sp.id} className="flex items-center gap-3 px-4 py-3" data-testid={`row-speaker-status-${sp.id}`}>
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${allStatuses[i]?.connected ? "bg-emerald-500" : "bg-red-400"}`} />
-                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300 flex-1">{sp.label}</span>
-                      <span className="text-xs text-[#707372]">{sp.ipAddress}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </main>
-        </>
-      )}
-
-      {/* ── INDIVIDUAL MODE ── */}
-      {!syncMode && isMulti && (
-        <main className="flex-1 px-5 py-5 overflow-y-auto">
-          <div className="max-w-lg mx-auto space-y-4">
-            <p className="text-xs text-[#707372] text-center mb-1">Each speaker is controlled independently</p>
-            {room.speakers.map((sp) => (
-              <IndividualSpeakerCard key={sp.id} speaker={sp} />
-            ))}
+            {tab === "presets" && (
+              <PresetsPanel currentPreset={state.currentPreset} />
+            )}
           </div>
-        </main>
+        </div>
       )}
-
-      <footer className="text-center pb-5 px-5 safe-bottom">
-        <p className="text-xs text-[#707372]/60">IP-A1 Volume Controller</p>
-      </footer>
     </div>
-  );
-}
-
-// ─── Home (root) ──────────────────────────────────────────────────────────────
-export default function Home() {
-  const [rooms, setRooms] = useState<Room[]>(() => loadRoomsFromCache());
-  const [activeRoom, setActiveRoom] = useState<Room | null>(null);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
-  const [adminMode, setAdminMode] = useState(false);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "synced" | "syncing" | "offline" | "error">("syncing");
-  const { toast } = useToast();
-
-  const loadFromServer = useCallback(async () => {
-    setSyncStatus("syncing");
-    try {
-      const serverRooms = await fetchRoomsFromServer();
-      setRooms(serverRooms);
-      saveRoomsToCache(serverRooms);
-      setSyncStatus("idle");
-    } catch {
-      const cached = loadRoomsFromCache();
-      setRooms(cached);
-      setSyncStatus("offline");
-    }
-  }, []);
-
-  useEffect(() => { loadFromServer(); }, [loadFromServer]);
-
-  const updateRooms = useCallback(async (newRooms: Room[]) => {
-    setRooms(newRooms);
-    saveRoomsToCache(newRooms);
-    setSyncStatus("syncing");
-    try {
-      await saveRoomsToServer(newRooms);
-      setSyncStatus("synced");
-      setTimeout(() => setSyncStatus("idle"), 3000);
-    } catch (err: any) {
-      setSyncStatus("error");
-      toast({ title: "Could not save to config file", description: err?.message || "Check that the server is running.", variant: "destructive" });
-    }
-  }, [toast]);
-
-  const handleAddRoom = (room: Room) => {
-    if (editingRoom) {
-      updateRooms(rooms.map((r) => (r.id === room.id ? room : r)));
-    } else {
-      updateRooms([...rooms, room]);
-    }
-    setShowAddDialog(false);
-    setEditingRoom(null);
-  };
-
-  const handleDeleteRoom = (id: string) => updateRooms(rooms.filter((r) => r.id !== id));
-
-  const handleToggleAdmin = () => {
-    if (adminMode) { setAdminMode(false); }
-    else { setShowPasswordDialog(true); }
-  };
-
-  if (activeRoom) {
-    return <ControlPanel room={activeRoom} onBack={() => setActiveRoom(null)} />;
-  }
-
-  return (
-    <>
-      <RoomList
-        rooms={rooms}
-        onSelectRoom={setActiveRoom}
-        onAddRoom={() => { setEditingRoom(null); setShowAddDialog(true); }}
-        onEditRoom={(room) => { setEditingRoom(room); setShowAddDialog(true); }}
-        onDeleteRoom={handleDeleteRoom}
-        adminMode={adminMode}
-        onToggleAdmin={handleToggleAdmin}
-        syncStatus={syncStatus}
-        onRefresh={loadFromServer}
-      />
-      {showPasswordDialog && (
-        <AdminPasswordDialog
-          onUnlock={() => { setAdminMode(true); setShowPasswordDialog(false); }}
-          onCancel={() => setShowPasswordDialog(false)}
-        />
-      )}
-      {showAddDialog && (
-        <AddRoomDialog
-          onAdd={handleAddRoom}
-          onCancel={() => { setShowAddDialog(false); setEditingRoom(null); }}
-          editRoom={editingRoom}
-        />
-      )}
-    </>
   );
 }

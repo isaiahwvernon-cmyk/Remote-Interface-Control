@@ -62,8 +62,6 @@ app.use((req, res, next) => {
 (async () => {
   const port = parseInt(process.env.PORT || "5000", 10);
 
-  // Detect LAN IP once — the same value is used in the startup banner
-  // and passed to /api/info so they always agree.
   const nets = os.networkInterfaces();
   let lanIP = "localhost";
   for (const name of Object.keys(nets)) {
@@ -78,7 +76,6 @@ app.use((req, res, next) => {
     }
   }
 
-  // Register API routes before Vite/static so they take priority
   await registerRoutes(httpServer, app, lanIP, port);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -99,7 +96,7 @@ app.use((req, res, next) => {
   httpServer.listen(port, "0.0.0.0", () => {
     console.log("");
     console.log("==========================================");
-    console.log(" IP-A1 Volume Controller");
+    console.log(" M-864D Mixer Controller");
     console.log("==========================================");
     console.log("");
     console.log(`Local:   http://localhost:${port}`);

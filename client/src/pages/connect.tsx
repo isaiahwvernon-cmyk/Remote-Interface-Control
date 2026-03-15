@@ -23,39 +23,46 @@ export default function ConnectPage() {
 
   return (
     <div
-      className="min-h-screen bg-background flex flex-col items-center justify-center px-6 py-10 safe-top safe-bottom"
+      className="min-h-screen flex flex-col items-center justify-center px-6 py-10"
+      style={{ background: "hsl(220 20% 7%)", color: "#e2e8f0" }}
       data-testid="connect-page"
     >
       <div className="w-full max-w-lg flex flex-col items-center gap-8">
-
         <div className="text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
-            <Wifi className="w-6 h-6 text-primary" />
-            <span className="text-sm font-semibold uppercase tracking-widest text-primary">
-              IP-A1 Volume Controller
-            </span>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg"
+              style={{ background: "hsl(30 100% 52%)" }}
+            >
+              M
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Connect from any device
-          </h1>
-          <p className="mt-2 text-muted-foreground text-base">
-            Scan the QR code or type the address into any browser on this network.
+          <h1 className="text-3xl font-bold mt-2">M-864D Controller</h1>
+          <p className="mt-2 text-gray-400 text-base">
+            Scan the QR code or type the address into any browser on this
+            network.
           </p>
         </div>
 
         {isLoading ? (
-          <div className="w-64 h-64 bg-muted rounded-2xl animate-pulse" />
+          <div
+            className="w-64 h-64 rounded-2xl animate-pulse"
+            style={{ background: "hsl(220 15% 14%)" }}
+          />
         ) : isLocalhost ? (
-          <div className="w-64 h-64 bg-muted rounded-2xl flex flex-col items-center justify-center gap-3 text-muted-foreground text-center px-6">
+          <div
+            className="w-64 h-64 rounded-2xl flex flex-col items-center justify-center gap-3 text-center px-6"
+            style={{ background: "hsl(220 15% 14%)", color: "#6b7280" }}
+          >
             <Monitor className="w-10 h-10" />
             <p className="text-sm leading-snug">
-              No LAN address detected. Open{" "}
-              <strong>localhost:5000</strong> in your browser.
+              No LAN address detected. Open <strong>localhost:5000</strong> in
+              your browser.
             </p>
           </div>
         ) : (
           <div
-            className="p-4 bg-white rounded-2xl shadow-md"
+            className="p-4 bg-white rounded-2xl shadow-xl"
             data-testid="qr-code"
           >
             <QRCodeSVG
@@ -68,28 +75,39 @@ export default function ConnectPage() {
         )}
 
         <div className="text-center">
-          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">
+          <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">
             Network address
           </p>
           <p
-            className="text-2xl font-bold font-mono text-foreground break-all"
+            className="text-2xl font-bold font-mono break-all"
+            style={{ color: "hsl(30 100% 60%)" }}
             data-testid="network-url"
           >
             {displayUrl}
           </p>
         </div>
 
-        <div className="w-full bg-card border border-border rounded-xl px-5 py-4 text-sm text-muted-foreground leading-relaxed">
+        <div
+          className="w-full rounded-xl px-5 py-4 text-sm text-gray-400 leading-relaxed"
+          style={{
+            background: "hsl(220 15% 13%)",
+            border: "1px solid hsl(220 15% 20%)",
+          }}
+        >
           <ol className="list-decimal list-inside space-y-1">
-            <li>Make sure the device is on the same Wi-Fi or network.</li>
-            <li>Scan the QR code <em>or</em> type the address above into any browser.</li>
-            <li>Select a room and adjust the volume.</li>
+            <li>Connect the device to the same Wi-Fi or network.</li>
+            <li>
+              Scan the QR code <em>or</em> type the address above into any
+              browser.
+            </li>
+            <li>Enter the M-864D mixer IP address to connect and control.</li>
           </ol>
         </div>
 
         <button
           onClick={() => navigate("/")}
-          className="text-sm text-primary underline underline-offset-4 hover:opacity-70 transition-opacity"
+          className="text-sm underline underline-offset-4 transition-opacity hover:opacity-70"
+          style={{ color: "hsl(30 100% 60%)" }}
           data-testid="button-open-controller"
         >
           Open controller on this device →
