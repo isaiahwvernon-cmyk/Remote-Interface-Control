@@ -42,6 +42,6 @@ echo "Press Ctrl+C to stop the server."
 echo "=========================================="
 echo
 
-(sleep 4 && open "http://localhost:5000" 2>/dev/null || xdg-open "http://localhost:5000" 2>/dev/null) &
+(sleep 4 && open "http://localhost:5000" 2>/dev/null || xdg-open "http://localhost:5000" 2>/dev/null; sleep 1 && open "http://localhost:5000/connect" 2>/dev/null || xdg-open "http://localhost:5000/connect" 2>/dev/null) &
 
 node dist/index.cjs

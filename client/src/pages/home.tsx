@@ -713,7 +713,6 @@ function ConnectForm({ onDemo }: { onDemo: () => void }) {
   const [port, setPort] = useState("3000");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
-  const serverUrl = useServerUrl();
 
   async function connect() {
     if (!ip.trim()) return;
@@ -842,11 +841,6 @@ function ConnectForm({ onDemo }: { onDemo: () => void }) {
         >
           Preview Interface
         </button>
-      </div>
-
-      {/* QR code — visible on the connect screen so tablets can scan right away */}
-      <div className="w-full max-w-sm mt-4">
-        <QRCard url={serverUrl} />
       </div>
     </div>
   );

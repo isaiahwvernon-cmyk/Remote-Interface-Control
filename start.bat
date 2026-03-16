@@ -56,7 +56,7 @@ echo Press Ctrl+C to stop the server.
 echo ==========================================
 echo.
 
-start "" /B cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:5000"
+start "" /B cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:5000 && start http://localhost:5000/connect"
 
 node dist\index.cjs
 
