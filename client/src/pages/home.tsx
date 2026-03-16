@@ -8,7 +8,7 @@ import {
   formatDb,
 } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, X } from "lucide-react";
+import { Settings, X, Radio, Eye } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -1007,9 +1007,21 @@ export default function Home() {
   // Use real ws state when connected, demo state otherwise
   const mixState: MixerState = wsState.connected ? wsState : demoState;
 
+  // Remote/local: when mixer is in local mode (remoteMode=false), UI is view-only
+  const viewOnly = wsState.connected && wsState.remoteMode === false;
+
+  async function toggleRemote() {
+    try {
+      await apiRequest("POST", "/api/remote", { remote: wsState.remoteMode !== true });
+    } catch {
+      toast({ title: "Remote mode command failed", variant: "destructive" });
+    }
+  }
+
   // ── Fader ──────────────────────────────────────────────────────────────────
   const setFader = useCallback(
     async (attr: number, ch: number, position: number) => {
+      if (viewOnly) return;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => {
           const next = { ...prev };
@@ -1027,12 +1039,13 @@ export default function Home() {
         toast({ title: "Fader command failed", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   // ── On/Off ─────────────────────────────────────────────────────────────────
   const toggleOn = useCallback(
     async (attr: number, ch: number, curOn: boolean) => {
+      if (viewOnly) return;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => {
           const next = { ...prev };
@@ -1050,12 +1063,13 @@ export default function Home() {
         toast({ title: "On/off command failed", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   // ── Matrix input toggle ────────────────────────────────────────────────────
   const toggleInputMatrix = useCallback(
     async (srcAttr: number, srcCh: number, bus: number, cur: boolean) => {
+      if (viewOnly) return;
       const matIdx = srcAttr === 0 ? srcCh : 8 + srcCh;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => {
@@ -1073,12 +1087,13 @@ export default function Home() {
         toast({ title: "Matrix command failed", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   // ── Matrix output toggle ───────────────────────────────────────────────────
   const toggleOutputMatrix = useCallback(
     async (bus: number, dstCh: number, cur: boolean) => {
+      if (viewOnly) return;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => {
           const next = { ...prev };
@@ -1095,12 +1110,13 @@ export default function Home() {
         toast({ title: "Matrix command failed", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   // ── Crosspoint gain ────────────────────────────────────────────────────────
   const setInputGain = useCallback(
     async (srcAttr: number, srcCh: number, bus: number, value: number) => {
+      if (viewOnly) return;
       const matIdx = srcAttr === 0 ? srcCh : 8 + srcCh;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => {
@@ -1118,12 +1134,13 @@ export default function Home() {
         toast({ title: "Gain command failed", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   // ── Presets ────────────────────────────────────────────────────────────────
   const loadPreset = useCallback(
     async (preset: number) => {
+      if (viewOnly) return;
       if (demoMode && !wsState.connected) {
         setDemoState((prev) => ({ ...prev, currentPreset: preset }));
         toast({ title: `Preset ${preset + 1} loaded` });
@@ -1136,11 +1153,12 @@ export default function Home() {
         toast({ title: "Failed to load preset", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   const storePreset = useCallback(
     async (preset: number) => {
+      if (viewOnly) return;
       if (demoMode && !wsState.connected) {
         toast({ title: `Preset ${preset + 1} stored (preview)` });
         return;
@@ -1152,7 +1170,7 @@ export default function Home() {
         toast({ title: "Failed to store preset", variant: "destructive" });
       }
     },
-    [demoMode, wsState.connected, toast],
+    [viewOnly, demoMode, wsState.connected, toast],
   );
 
   const TABS: { id: Tab; label: string }[] = [
@@ -1205,9 +1223,42 @@ export default function Home() {
               PREVIEW
             </span>
           )}
+          {wsState.connected && wsState.remoteMode !== null && (
+            <span
+              className="font-mono uppercase rounded px-2 py-0.5"
+              style={{
+                fontSize: 8,
+                letterSpacing: "0.14em",
+                background: wsState.remoteMode ? "rgba(0,180,224,0.12)" : "rgba(229,160,0,0.12)",
+                color: wsState.remoteMode ? C.accent : C.store,
+                border: `1px solid ${wsState.remoteMode ? C.accent + "44" : C.store + "44"}`,
+              }}
+              data-testid="status-remote-mode"
+            >
+              {wsState.remoteMode ? "REMOTE" : "LOCAL"}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          {wsState.connected && wsState.remoteMode !== null && (
+            <button
+              onClick={toggleRemote}
+              className="flex items-center gap-1.5 font-mono uppercase rounded-xl px-3 py-1.5"
+              style={{
+                fontSize: 8,
+                letterSpacing: "0.1em",
+                background: wsState.remoteMode ? `${C.accent}14` : `${C.store}14`,
+                border: `1px solid ${wsState.remoteMode ? C.accent + "33" : C.store + "33"}`,
+                color: wsState.remoteMode ? C.accent : C.store,
+              }}
+              data-testid="btn-toggle-remote"
+            >
+              {wsState.remoteMode
+                ? <><Radio size={9} /> Remote</>
+                : <><Eye size={9} /> Local</>}
+            </button>
+          )}
           {demoMode && !wsState.connected && (
             <button
               onClick={() => setDemoMode(false)}
@@ -1256,6 +1307,24 @@ export default function Home() {
       {/* ── Main mixer UI ── */}
       {isActive && !showSettings && (
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* View-only banner */}
+          {viewOnly && (
+            <div
+              className="flex items-center justify-center gap-2 shrink-0 font-mono uppercase"
+              style={{
+                height: 28,
+                fontSize: 9,
+                letterSpacing: "0.22em",
+                background: `${C.store}1a`,
+                borderBottom: `1px solid ${C.store}44`,
+                color: C.store,
+              }}
+              data-testid="banner-view-only"
+            >
+              <Eye size={10} />
+              View only — mixer is in local control mode
+            </div>
+          )}
           {/* Tab bar */}
           <div
             className="flex shrink-0 px-3 gap-1 pt-1.5"

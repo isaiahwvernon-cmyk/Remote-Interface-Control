@@ -108,6 +108,14 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  app.post("/api/remote", (req, res) => {
+    const schema = z.object({ remote: z.boolean() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Expected { remote: boolean }" });
+    mixer.setRemoteMode(parsed.data.remote);
+    res.json({ ok: true });
+  });
+
   app.post("/api/fader", (req, res) => {
     const schema = z.object({
       attr: z.number().int().min(0).max(3),

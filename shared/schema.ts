@@ -10,6 +10,7 @@ export interface MixerState {
   connected: boolean;
   ip: string;
   port: number;
+  remoteMode: boolean | null;
   currentPreset: number;
   monoInFader: number[];
   stereoInFader: number[];
@@ -32,6 +33,7 @@ export function defaultMixerState(): MixerState {
     connected: false,
     ip: "",
     port: 3000,
+    remoteMode: null,
     currentPreset: 0,
     monoInFader: Array(8).fill(0x35),
     stereoInFader: Array(2).fill(0x35),

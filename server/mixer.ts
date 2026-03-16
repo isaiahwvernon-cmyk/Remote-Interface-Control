@@ -2,9 +2,10 @@ import net from "net";
 import { EventEmitter } from "events";
 import { defaultMixerState, type MixerState } from "@shared/schema";
 
-const KEEPALIVE_INTERVAL_MS = 15000;
+const KEEPALIVE_INTERVAL_MS = 5000;
 const RECONNECT_DELAY_MS = 5000;
 const POLL_INTERVAL_MS = 30000;
+const SOCKET_TIMEOUT_MS = 30000;
 
 export class MixerManager extends EventEmitter {
   private socket: net.Socket | null = null;
@@ -16,6 +17,8 @@ export class MixerManager extends EventEmitter {
   private lastSentAt: number = 0;
   private intentionalDisconnect: boolean = false;
   private connecting: boolean = false;
+  private currentIp: string = "";
+  private currentPort: number = 3000;
 
   getState(): MixerState {
     return { ...this.state };
@@ -30,8 +33,11 @@ export class MixerManager extends EventEmitter {
       this.disconnect();
     }
     this.intentionalDisconnect = false;
+    this.currentIp = ip;
+    this.currentPort = port;
     this.state.ip = ip;
     this.state.port = port;
+    this.state.remoteMode = null;
     this._doConnect(ip, port);
   }
 
@@ -49,7 +55,7 @@ export class MixerManager extends EventEmitter {
     const sock = new net.Socket();
     this.socket = sock;
 
-    sock.setTimeout(10000);
+    sock.setTimeout(SOCKET_TIMEOUT_MS);
 
     sock.connect(port, ip, () => {
       console.log(`[Mixer] Connected to ${ip}:${port}`);
@@ -58,7 +64,10 @@ export class MixerManager extends EventEmitter {
       this.receiveBuffer = Buffer.alloc(0);
       this.emit("state", this.state);
       this._startKeepalive();
-      setTimeout(() => this._requestAllState(), 500);
+      setTimeout(() => {
+        this._requestAllState();
+        this._requestRemoteMode();
+      }, 500);
     });
 
     sock.on("data", (data: Buffer) => {
@@ -67,8 +76,9 @@ export class MixerManager extends EventEmitter {
     });
 
     sock.on("timeout", () => {
-      console.log("[Mixer] Connection timed out");
-      sock.destroy();
+      console.log("[Mixer] Socket idle timeout — sending keepalive");
+      this._rawSend(Buffer.from([0xFF]));
+      sock.setTimeout(SOCKET_TIMEOUT_MS);
     });
 
     sock.on("error", (err) => {
@@ -79,12 +89,13 @@ export class MixerManager extends EventEmitter {
       console.log("[Mixer] Connection closed");
       this.connecting = false;
       this.state.connected = false;
+      this.state.remoteMode = null;
       this._cleanup();
       this.emit("state", this.state);
       if (!this.intentionalDisconnect) {
-        console.log(`[Mixer] Reconnecting in ${RECONNECT_DELAY_MS}ms...`);
+        console.log(`[Mixer] Reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`);
         this.reconnectTimer = setTimeout(() => {
-          this._doConnect(ip, port);
+          this._doConnect(this.currentIp, this.currentPort);
         }, RECONNECT_DELAY_MS);
       }
     });
@@ -103,9 +114,11 @@ export class MixerManager extends EventEmitter {
   private _startKeepalive(): void {
     if (this.keepaliveTimer) clearInterval(this.keepaliveTimer);
     this.keepaliveTimer = setInterval(() => {
-      const now = Date.now();
-      if (now - this.lastSentAt > KEEPALIVE_INTERVAL_MS - 1000) {
-        this._rawSend(Buffer.from([0xFF]));
+      if (this.state.connected) {
+        const idle = Date.now() - this.lastSentAt;
+        if (idle >= KEEPALIVE_INTERVAL_MS - 500) {
+          this._rawSend(Buffer.from([0xFF]));
+        }
       }
     }, KEEPALIVE_INTERVAL_MS);
 
@@ -133,47 +146,53 @@ export class MixerManager extends EventEmitter {
     this._rawSend(Buffer.from(bytes));
   }
 
+  // ── Remote / Local mode ────────────────────────────────────────────────────
+  // M-864D uses 0xF0 sub-code 0x61 for remote/local mode
+  // Query:      [0xF0, 0x02, 0x61, 0x00]
+  // Set Remote: [0xF0, 0x03, 0x61, 0x00, 0x01]
+  // Set Local:  [0xF0, 0x03, 0x61, 0x00, 0x00]
+  // Response comes back as packet with cmd 0xE1
+
+  private _requestRemoteMode(): void {
+    this.sendCommand([0xF0, 0x02, 0x61, 0x00]);
+  }
+
+  setRemoteMode(remote: boolean): void {
+    console.log(`[Mixer] Setting mode to ${remote ? "REMOTE" : "LOCAL"}`);
+    this.sendCommand([0xF0, 0x03, 0x61, 0x00, remote ? 0x01 : 0x00]);
+  }
+
+  // ── State polling ──────────────────────────────────────────────────────────
   private _requestAllState(): void {
     const cmds: number[][] = [];
 
-    // System / machine info queries (0xF2)
-    cmds.push([0xF2, 0x02, 0x01, 0x01]); // request machine name
-    cmds.push([0xF2, 0x02, 0x00, 0x02]); // request firmware version
-
-    // Current preset number (0xF0 sub-code 0x71)
+    cmds.push([0xF2, 0x02, 0x01, 0x01]);
+    cmds.push([0xF2, 0x02, 0x00, 0x02]);
     cmds.push([0xF0, 0x02, 0x71, 0x00]);
 
-    // Fader positions (0x11) and on/off (0x12) for all channel types
-    // Mono inputs: attr=0x00, ch 0-7
     for (let ch = 0; ch < 8; ch++) {
       cmds.push([0xF0, 0x03, 0x11, 0x00, ch]);
       cmds.push([0xF0, 0x03, 0x12, 0x00, ch]);
     }
-    // Stereo inputs: attr=0x01, ch 0-1
     for (let ch = 0; ch < 2; ch++) {
       cmds.push([0xF0, 0x03, 0x11, 0x01, ch]);
       cmds.push([0xF0, 0x03, 0x12, 0x01, ch]);
     }
-    // Mono outputs: attr=0x02, ch 0-3
     for (let ch = 0; ch < 4; ch++) {
       cmds.push([0xF0, 0x03, 0x11, 0x02, ch]);
       cmds.push([0xF0, 0x03, 0x12, 0x02, ch]);
     }
-    // Rec outputs: attr=0x03, ch 0-1
     for (let ch = 0; ch < 2; ch++) {
       cmds.push([0xF0, 0x03, 0x11, 0x03, ch]);
       cmds.push([0xF0, 0x03, 0x12, 0x03, ch]);
     }
 
-    // Input matrix routing (0x14) and crosspoint gain (0x15)
-    // Mono sources (attr=0x00): src 0-7, bus 0-3
     for (let src = 0; src < 8; src++) {
       for (let bus = 0; bus < 4; bus++) {
         cmds.push([0xF0, 0x04, 0x14, 0x00, src, bus]);
         cmds.push([0xF0, 0x04, 0x15, 0x00, src, bus]);
       }
     }
-    // Stereo sources (attr=0x01): src 0-1, bus 0-3
     for (let src = 0; src < 2; src++) {
       for (let bus = 0; bus < 4; bus++) {
         cmds.push([0xF0, 0x04, 0x14, 0x01, src, bus]);
@@ -181,22 +200,17 @@ export class MixerManager extends EventEmitter {
       }
     }
 
-    // Output matrix routing (0x16): bus 0-3 → rec out 0-1 (attr=0x03)
     for (let bus = 0; bus < 4; bus++) {
       cmds.push([0xF0, 0x04, 0x16, bus, 0x03, 0x00]);
       cmds.push([0xF0, 0x04, 0x16, bus, 0x03, 0x01]);
     }
 
-    // Level meter requests (0xE6 sub-code 0x01 = request all meters)
-    // Mono inputs
     for (let ch = 0; ch < 8; ch++) {
       cmds.push([0xE6, 0x03, 0x01, 0x00, ch]);
     }
-    // Stereo inputs
     for (let ch = 0; ch < 2; ch++) {
       cmds.push([0xE6, 0x03, 0x01, 0x01, ch]);
     }
-    // Mono outputs
     for (let ch = 0; ch < 4; ch++) {
       cmds.push([0xE6, 0x03, 0x01, 0x02, ch]);
     }
@@ -208,6 +222,7 @@ export class MixerManager extends EventEmitter {
     }
   }
 
+  // ── Packet parser ──────────────────────────────────────────────────────────
   private _parseBuffer(): void {
     while (this.receiveBuffer.length >= 2) {
       const cmd = this.receiveBuffer[0];
@@ -237,7 +252,6 @@ export class MixerManager extends EventEmitter {
       return;
     }
 
-    // System info / machine name / firmware response
     if (cmd === 0xF2) {
       if (data.length >= 1) {
         const subCode = data[0];
@@ -248,13 +262,29 @@ export class MixerManager extends EventEmitter {
           const ver = data.slice(1).toString("ascii").replace(/\0/g, "").trim();
           if (ver) console.log(`[Mixer] Firmware: ${ver}`);
         } else {
-          console.log(`[Mixer] 0xF2 subCode=0x${subCode.toString(16).padStart(2,"0")} data=[${Array.from(data).map(b=>"0x"+b.toString(16).padStart(2,"0")).join(",")}]`);
+          console.log(`[Mixer] 0xF2 sub=0x${subCode.toString(16).padStart(2,"0")} data=[${Array.from(data).map(b=>"0x"+b.toString(16).padStart(2,"0")).join(",")}]`);
         }
       }
       return;
     }
 
-    if (cmd === 0x91 && data.length >= 3) {
+    // Remote/local mode response: cmd=0xE1, data[0]=sub-code(0x61 or 0x00), data[1]=mode(0x00=local,0x01=remote)
+    if (cmd === 0xE1 && data.length >= 2) {
+      const mode = data[1] === 0x01;
+      console.log(`[Mixer] Remote mode response: ${mode ? "REMOTE" : "LOCAL"}`);
+      this.state.remoteMode = mode;
+      changed = true;
+    }
+
+    // Also handle direct 0x61 response if the mixer echoes it differently
+    else if (cmd === 0xA1 && data.length >= 2) {
+      const mode = data[1] === 0x01;
+      console.log(`[Mixer] Remote mode (0xA1): ${mode ? "REMOTE" : "LOCAL"}`);
+      this.state.remoteMode = mode;
+      changed = true;
+    }
+
+    else if (cmd === 0x91 && data.length >= 3) {
       const attr = data[0];
       const ch = data[1];
       const pos = data[2];
@@ -331,6 +361,7 @@ export class MixerManager extends EventEmitter {
     }
   }
 
+  // ── Control commands ───────────────────────────────────────────────────────
   setFader(attr: number, ch: number, position: number): void {
     this.sendCommand([0x91, 0x03, attr, ch, position]);
   }
