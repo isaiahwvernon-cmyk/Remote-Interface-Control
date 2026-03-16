@@ -5,6 +5,7 @@ import { defaultMixerState, type MixerState } from "@shared/schema";
 const KEEPALIVE_INTERVAL_MS = 5000;
 const RECONNECT_DELAY_MS = 5000;
 const POLL_INTERVAL_MS = 30000;
+const METER_POLL_INTERVAL_MS = 300;
 const SOCKET_TIMEOUT_MS = 30000;
 
 export class MixerManager extends EventEmitter {
@@ -12,6 +13,7 @@ export class MixerManager extends EventEmitter {
   private state: MixerState = defaultMixerState();
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private meterTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private receiveBuffer: Buffer = Buffer.alloc(0);
   private lastSentAt: number = 0;
@@ -109,6 +111,7 @@ export class MixerManager extends EventEmitter {
   private _cleanup(): void {
     if (this.keepaliveTimer) { clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.meterTimer) { clearInterval(this.meterTimer); this.meterTimer = null; }
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.socket) {
       const s = this.socket;
@@ -135,6 +138,15 @@ export class MixerManager extends EventEmitter {
         this._requestAllState();
       }
     }, POLL_INTERVAL_MS);
+
+    // Rapid meter polling so level meters animate smoothly
+    if (this.meterTimer) clearInterval(this.meterTimer);
+    this.meterTimer = setInterval(() => {
+      if (!this.state.connected) return;
+      for (let ch = 0; ch < 8; ch++) this.sendCommand([0xE6, 0x03, 0x01, 0x00, ch]);
+      for (let ch = 0; ch < 2; ch++) this.sendCommand([0xE6, 0x03, 0x01, 0x01, ch]);
+      for (let ch = 0; ch < 4; ch++) this.sendCommand([0xE6, 0x03, 0x01, 0x02, ch]);
+    }, METER_POLL_INTERVAL_MS);
   }
 
   private _rawSend(data: Buffer): void {
@@ -153,15 +165,26 @@ export class MixerManager extends EventEmitter {
   }
 
   // ── Control lock ───────────────────────────────────────────────────────────
-  // The M-864D's Remote/Local mode is toggled by a physical button on the unit
-  // and cannot be changed via TCP/IP commands. We track a software-side lock
-  // here instead: when locked (remoteMode=false), the server ignores control
-  // commands and the UI enters view-only mode.
+  // "View Only" physically disconnects from the mixer (no traffic sent).
+  // "Control" reconnects using the last-used IP/port.
 
   setRemoteMode(remote: boolean): void {
-    console.log(`[Mixer] Control lock: ${remote ? "UNLOCKED (remote)" : "LOCKED (local/view-only)"}`);
-    this.state.remoteMode = remote;
-    this.emit("state", this.state);
+    if (remote) {
+      console.log(`[Mixer] Control re-enabled — reconnecting to ${this.currentIp}:${this.currentPort}`);
+      this.state.remoteMode = null;
+      if (this.currentIp) {
+        this.connect(this.currentIp, this.currentPort);
+      }
+    } else {
+      console.log("[Mixer] View-only mode — disconnecting from mixer");
+      // Intentional disconnect — no auto-reconnect
+      this.intentionalDisconnect = true;
+      this._cleanup();
+      this.state.connected = false;
+      this.state.remoteMode = false;
+      // Keep ip/port so the UI still knows what it was connected to
+      this.emit("state", this.state);
+    }
   }
 
   // ── State polling ──────────────────────────────────────────────────────────

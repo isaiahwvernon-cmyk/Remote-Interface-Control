@@ -195,10 +195,10 @@ export async function registerRoutes(
   });
 
   const cfg = readConfig();
-  if (cfg && cfg.ip) {
-    console.log(`[Mixer] Auto-connecting to saved config: ${cfg.ip}:${cfg.port}`);
-    mixer.connect(cfg.ip, cfg.port);
-  }
+  const autoIp   = cfg?.ip   || "192.168.14.1";
+  const autoPort = cfg?.port ?? 3000;
+  console.log(`[Mixer] Auto-connecting to ${autoIp}:${autoPort}`);
+  mixer.connect(autoIp, autoPort);
 
   return httpServer;
 }

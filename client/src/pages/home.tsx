@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useMixerWs } from "@/hooks/use-mixer";
 import {
   defaultMixerState,
@@ -180,6 +180,17 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
   const pct0db = (1 - 53 / 63) * 100;
   const stripH = LABEL_H + faderH + DB_H + BTN_H;
 
+  // Peak hold: jump to new peak, decay after 1.5 s
+  const [peakPct, setPeakPct] = useState(0);
+  const peakTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (meterPct > peakPct) {
+      setPeakPct(meterPct);
+      if (peakTimer.current) clearTimeout(peakTimer.current);
+      peakTimer.current = setTimeout(() => setPeakPct(0), 1500);
+    }
+  }, [meterPct]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div
       className="flex flex-col items-center shrink-0 select-none"
@@ -263,20 +274,47 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
           />
         </div>
 
-        {/* Level meter */}
-        <div className="absolute right-0 rounded-sm overflow-hidden"
-          style={{ top: FADER_PAD, bottom: FADER_PAD, width: 5, background: "#030609" }}>
+        {/* Level meter — segmented bar + peak hold dot */}
+        <div className="absolute right-0 overflow-hidden"
+          style={{ top: FADER_PAD, bottom: FADER_PAD, width: 9, background: "#080d18", borderRadius: 3 }}>
+
+          {/* Filled bar */}
           <div
-            className="absolute bottom-0 w-full rounded-sm"
+            className="absolute bottom-0 w-full"
             style={{
               height: `${meterPct}%`,
               background:
-                meterPct > 85 ? C.recOut
-                : meterPct > 65 ? `linear-gradient(to top, ${C.monoOut}, ${C.accent})`
-                : `linear-gradient(to top, ${C.accent}88, ${C.monoIn}88)`,
-              transition: "height 0.07s",
+                meterPct > 88
+                  ? C.recOut
+                  : meterPct > 70
+                  ? `linear-gradient(to top, ${C.monoOut}, #e0c040)`
+                  : `linear-gradient(to top, ${C.monoOut}cc, ${C.monoOut})`,
+              transition: "height 0.06s linear",
+              borderRadius: 2,
             }}
           />
+
+          {/* Segment lines overlay — creates the "VU bar" look */}
+          <div className="absolute inset-0 pointer-events-none" style={{
+            backgroundImage: "repeating-linear-gradient(to bottom, transparent 0px, transparent 3px, #080d18 3px, #080d18 4px)",
+            backgroundSize: "100% 4px",
+          }} />
+
+          {/* Peak hold indicator */}
+          {peakPct > 2 && (
+            <div
+              className="absolute w-full"
+              style={{
+                bottom: `${peakPct}%`,
+                height: 2,
+                background: peakPct > 88 ? C.recOut : peakPct > 70 ? "#e0c040" : C.monoOut,
+                opacity: 0.9,
+                transition: "bottom 0.15s ease-out",
+                borderRadius: 1,
+                boxShadow: `0 0 4px ${peakPct > 88 ? C.recOut : C.monoOut}`,
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -1003,12 +1041,14 @@ export default function Home() {
   const { toast } = useToast();
 
   const faderH = useFaderH();
-  const isActive = wsState.connected || demoMode;
-  // Use real ws state when connected, demo state otherwise
-  const mixState: MixerState = wsState.connected ? wsState : demoState;
+  // "soft-disconnected" = user toggled View-Only; mixer UI stays visible
+  const softDisconnected = !wsState.connected && wsState.remoteMode === false && !!wsState.ip;
+  const isActive = wsState.connected || demoMode || softDisconnected;
+  // Use real ws state when connected or soft-disconnected (shows last known state)
+  const mixState: MixerState = (wsState.connected || softDisconnected) ? wsState : demoState;
 
-  // Remote/local: when mixer is in local mode (remoteMode=false), UI is view-only
-  const viewOnly = wsState.connected && wsState.remoteMode === false;
+  // viewOnly = either connected in locked mode, OR soft-disconnected
+  const viewOnly = wsState.remoteMode === false;
 
   async function toggleRemote() {
     try {
@@ -1325,7 +1365,7 @@ export default function Home() {
               data-testid="banner-view-only"
             >
               <Eye size={10} />
-              Controls locked — tap the Control button in the header to re-enable
+              {softDisconnected ? "Disconnected from mixer — tap Control to reconnect" : "Controls locked — tap Control to re-enable"}
             </div>
           )}
           {/* Tab bar */}
