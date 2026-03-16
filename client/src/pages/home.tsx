@@ -86,15 +86,20 @@ const SCALE_MARKS = [
 ];
 
 // ── ChannelStrip ──────────────────────────────────────────────────────────────
-// LABEL_H + DB_H + BTN_H = fixed chrome inside each strip
+// Fixed heights inside each strip
 const LABEL_H = 22;
 const DB_H    = 20;
 const BTN_H   = 52;
-// pixels above the strip area (app header + tab bar)
-const OUTER_CHROME = 84;
+// Chrome above the strip row: app header(46) + tab bar(38) + wrapper iframe overhead(60)
+const OUTER_CHROME = 144;
+// Fader travel: min 140px, max 300px — stays within the viewport and looks clean
+const FADER_MIN = 140;
+const FADER_MAX = 300;
 
 function useFaderH(): number {
-  const calc = () => Math.max(120, window.innerHeight - OUTER_CHROME - LABEL_H - DB_H - BTN_H);
+  const calc = () => Math.max(FADER_MIN, Math.min(FADER_MAX,
+    window.innerHeight - OUTER_CHROME - LABEL_H - DB_H - BTN_H
+  ));
   const [h, setH] = useState(calc);
   useEffect(() => {
     const onResize = () => setH(calc());
