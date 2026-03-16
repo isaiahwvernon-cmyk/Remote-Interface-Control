@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useMixerWs } from "@/hooks/use-mixer";
 import {
   defaultMixerState,
@@ -86,45 +86,53 @@ const SCALE_MARKS = [
 ];
 
 // ── ChannelStrip ──────────────────────────────────────────────────────────────
+// LABEL_H + DB_H + BTN_H = fixed chrome inside each strip
+const LABEL_H = 22;
+const DB_H    = 20;
+const BTN_H   = 52;
+// pixels above the strip area (app header + tab bar)
+const OUTER_CHROME = 84;
+
+function useFaderH(): number {
+  const calc = () => Math.max(120, window.innerHeight - OUTER_CHROME - LABEL_H - DB_H - BTN_H);
+  const [h, setH] = useState(calc);
+  useEffect(() => {
+    const onResize = () => setH(calc());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return h;
+}
+
 interface StripProps {
   label: string;
   color: string;
   position: number;
   on: boolean;
   level: number;
+  faderH: number;
   onFader: (v: number) => void;
   onToggle: () => void;
 }
 
-function ChannelStrip({ label, color, position, on, level, onFader, onToggle }: StripProps) {
+function ChannelStrip({ label, color, position, on, level, faderH, onFader, onToggle }: StripProps) {
   const db = faderPositionToDb(position);
   const dbStr = formatDb(db);
   const meterPct = Math.min(100, (level / 72) * 100);
   const pct0db = (1 - 53 / 63) * 100;
-
-  // Measure the actual rendered height of the fader area to set the rotated slider width
-  const faderAreaRef = useRef<HTMLDivElement>(null);
-  const [trackH, setTrackH] = useState(200);
-  useEffect(() => {
-    const el = faderAreaRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setTrackH(Math.max(60, entry.contentRect.height));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const stripH = LABEL_H + faderH + DB_H + BTN_H;
 
   return (
     <div
       className="flex flex-col items-center shrink-0 select-none"
-      style={{ width: 76, background: C.panel, borderRight: `1px solid ${C.border}`, height: "100%" }}
+      style={{ width: 76, height: stripH, background: C.panel, borderRight: `1px solid ${C.border}` }}
     >
       {/* Label band */}
       <div
-        className="w-full flex items-center justify-center font-mono uppercase shrink-0"
+        className="w-full flex items-center justify-center font-mono uppercase"
         style={{
-          height: 22,
+          height: LABEL_H,
+          flexShrink: 0,
           background: color + "18",
           borderBottom: `1px solid ${color}44`,
           fontSize: 8,
@@ -135,16 +143,15 @@ function ChannelStrip({ label, color, position, on, level, onFader, onToggle }: 
         {label}
       </div>
 
-      {/* Fader + scale + meter — flex-1 fills all remaining height */}
-      <div ref={faderAreaRef} className="relative w-full" style={{ flex: 1, minHeight: 60, overflow: "hidden" }}>
-        {/* Scale marks — left 20px */}
+      {/* Fader + scale + meter — explicit pixel height = faderH */}
+      <div className="relative w-full" style={{ height: faderH, flexShrink: 0, overflow: "hidden" }}>
+        {/* Scale marks */}
         {SCALE_MARKS.map(({ pos, label: ml }) => (
           <div
             key={pos}
             className="absolute flex items-center"
             style={{
-              left: 0,
-              width: 20,
+              left: 0, width: 20,
               top: `${(1 - pos / 63) * 100}%`,
               transform: "translateY(-50%)",
               justifyContent: "flex-end",
@@ -158,27 +165,23 @@ function ChannelStrip({ label, color, position, on, level, onFader, onToggle }: 
           </div>
         ))}
 
-        {/* 0 dB reference line */}
-        <div
-          className="absolute pointer-events-none"
+        {/* 0 dB line */}
+        <div className="absolute pointer-events-none"
           style={{ left: 20, right: 8, top: `${pct0db}%`, height: 1, background: color, opacity: 0.2 }}
         />
 
-        {/* Rotated slider — width equals measured trackH */}
+        {/* Rotated slider — width = faderH so the track fills the area */}
         <div className="absolute" style={{ left: 20, right: 8, top: 0, bottom: 0, overflow: "hidden" }}>
           <input
-            type="range"
-            min={0}
-            max={63}
-            value={position}
+            type="range" min={0} max={63} value={position}
             onChange={(e) => onFader(Number(e.target.value))}
             className="mixer-fader"
-            style={{ width: trackH, height: 44 }}
+            style={{ width: faderH, height: 44 }}
             data-testid={`fader-${label}`}
           />
         </div>
 
-        {/* Level meter — right strip */}
+        {/* Level meter */}
         <div className="absolute right-0 rounded-sm overflow-hidden" style={{ top: 8, bottom: 8, width: 5, background: "#030609" }}>
           <div
             className="absolute bottom-0 w-full rounded-sm"
@@ -196,8 +199,9 @@ function ChannelStrip({ label, color, position, on, level, onFader, onToggle }: 
 
       {/* dB readout */}
       <div
-        className="font-mono text-center w-full shrink-0"
-        style={{ fontSize: 10, color: on ? C.bright : C.dim, padding: "3px 0", letterSpacing: "0.04em" }}
+        className="font-mono text-center w-full"
+        style={{ height: DB_H, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 10, color: on ? C.bright : C.dim, letterSpacing: "0.04em" }}
       >
         {dbStr}
       </div>
@@ -205,9 +209,9 @@ function ChannelStrip({ label, color, position, on, level, onFader, onToggle }: 
       {/* ON / MUTE button */}
       <button
         onClick={onToggle}
-        className="w-full flex flex-col items-center justify-center gap-1.5 transition-all shrink-0"
+        className="w-full flex flex-col items-center justify-center gap-1.5 transition-all"
         style={{
-          height: 52,
+          height: BTN_H, flexShrink: 0,
           background: on ? `${C.on}1a` : "#060a14",
           borderTop: `1px solid ${on ? C.on + "44" : C.border}`,
         }}
@@ -897,6 +901,7 @@ export default function Home() {
   const [demoState, setDemoState] = useState<MixerState>(defaultMixerState);
   const { toast } = useToast();
 
+  const faderH = useFaderH();
   const isActive = wsState.connected || demoMode;
   // Use real ws state when connected, demo state otherwise
   const mixState: MixerState = wsState.connected ? wsState : demoState;
@@ -1180,29 +1185,23 @@ export default function Home() {
 
           {/* ── Channels ── */}
           {tab === "channels" && (
-            /* flex-1 gives this wrapper a DEFINITE height in the column parent */
-            <div className="flex-1 overflow-hidden">
-              {/* scroll container is separate so overflow doesn't collapse cross-axis height */}
-              <div
-                className="h-full overflow-x-auto overflow-y-hidden"
-                style={{ scrollbarWidth: "thin", scrollbarColor: `${C.border} transparent` }}
-              >
-                {/* flex row also h-full — strips now inherit a definite height */}
-                <div className="flex h-full">
-                  {CH_DEFS.map((ch) => (
-                    <ChannelStrip
-                      key={ch.label}
-                      label={ch.label}
-                      color={ch.color}
-                      position={ch.getPos(mixState)}
-                      on={ch.getOn(mixState)}
-                      level={ch.getLvl(mixState)}
-                      onFader={(v) => setFader(ch.attr, ch.ch, v)}
-                      onToggle={() => toggleOn(ch.attr, ch.ch, ch.getOn(mixState))}
-                    />
-                  ))}
-                </div>
-              </div>
+            <div
+              className="flex overflow-x-auto overflow-y-hidden flex-1"
+              style={{ scrollbarWidth: "thin", scrollbarColor: `${C.border} transparent`, alignItems: "flex-start" }}
+            >
+              {CH_DEFS.map((ch) => (
+                <ChannelStrip
+                  key={ch.label}
+                  label={ch.label}
+                  color={ch.color}
+                  position={ch.getPos(mixState)}
+                  on={ch.getOn(mixState)}
+                  level={ch.getLvl(mixState)}
+                  faderH={faderH}
+                  onFader={(v) => setFader(ch.attr, ch.ch, v)}
+                  onToggle={() => toggleOn(ch.attr, ch.ch, ch.getOn(mixState))}
+                />
+              ))}
             </div>
           )}
 
