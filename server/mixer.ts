@@ -29,10 +29,12 @@ export class MixerManager extends EventEmitter {
   }
 
   connect(ip: string, port: number = 3000): void {
-    if (this.connecting || (this.socket && !this.socket.destroyed)) {
-      this.disconnect();
-    }
+    // Always fully tear down — clears any pending reconnect timer,
+    // kills existing socket, and stops keepalive before re-connecting
+    this.intentionalDisconnect = true;
+    this._cleanup();
     this.intentionalDisconnect = false;
+    this.connecting = false;
     this.currentIp = ip;
     this.currentPort = port;
     this.state.ip = ip;
@@ -71,21 +73,25 @@ export class MixerManager extends EventEmitter {
     });
 
     sock.on("data", (data: Buffer) => {
+      if (this.socket !== sock) return;
       this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
       this._parseBuffer();
     });
 
     sock.on("timeout", () => {
-      console.log("[Mixer] Socket idle timeout — sending keepalive");
+      if (this.socket !== sock) return;
       this._rawSend(Buffer.from([0xFF]));
       sock.setTimeout(SOCKET_TIMEOUT_MS);
     });
 
     sock.on("error", (err) => {
+      if (this.socket !== sock) return;
       console.log(`[Mixer] Socket error: ${err.message}`);
     });
 
     sock.on("close", () => {
+      // Ignore close events from sockets that have already been replaced
+      if (this.socket !== sock) return;
       console.log("[Mixer] Connection closed");
       this.connecting = false;
       this.state.connected = false;
@@ -106,8 +112,9 @@ export class MixerManager extends EventEmitter {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.socket) {
-      try { this.socket.destroy(); } catch {}
-      this.socket = null;
+      const s = this.socket;
+      this.socket = null;       // null first so stale-socket guards fire correctly
+      try { s.destroy(); } catch {}
     }
   }
 
