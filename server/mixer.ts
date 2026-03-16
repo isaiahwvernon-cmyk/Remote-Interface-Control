@@ -160,6 +160,10 @@ export class MixerManager extends EventEmitter {
   setRemoteMode(remote: boolean): void {
     console.log(`[Mixer] Setting mode to ${remote ? "REMOTE" : "LOCAL"}`);
     this.sendCommand([0xF0, 0x03, 0x61, 0x00, remote ? 0x01 : 0x00]);
+    // Update state immediately so the UI reflects the change without waiting
+    // for the mixer to acknowledge (not all firmware versions send a response)
+    this.state.remoteMode = remote;
+    this.emit("state", this.state);
   }
 
   // ── State polling ──────────────────────────────────────────────────────────
