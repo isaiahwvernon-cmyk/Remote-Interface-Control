@@ -114,6 +114,54 @@ function useFaderH(): number {
   return h;
 }
 
+// Returns the server's LAN URL — always resolves (never stays empty indefinitely)
+function useServerUrl(): string {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    fetch("/api/info")
+      .then((r) => r.json())
+      .then((d: { lanIP?: string; port?: number }) => {
+        const port = d.port ?? 5000;
+        const lan = d.lanIP ?? "";
+        if (lan && lan !== "localhost" && lan !== "127.0.0.1") {
+          setUrl(`http://${lan}:${port}`);
+        } else {
+          setUrl(`http://${window.location.hostname}:${port}`);
+        }
+      })
+      .catch(() => setUrl(window.location.origin));
+  }, []);
+  return url;
+}
+
+// Reusable QR code card shown on connect screen and settings
+function QRCard({ url }: { url: string }) {
+  if (!url) return null;
+  return (
+    <div
+      className="rounded-2xl p-4 flex flex-col items-center gap-3"
+      style={{ background: C.panel, border: `1px solid ${C.border}` }}
+    >
+      <span className="font-mono uppercase self-start" style={{ fontSize: 8, color: C.dim, letterSpacing: "0.18em" }}>
+        Open on tablet / phone
+      </span>
+      <div className="rounded-xl p-2" style={{ background: "#ffffff" }}>
+        <QRCodeSVG value={url} size={160} bgColor="#ffffff" fgColor="#0b1120" level="M" />
+      </div>
+      <span
+        className="font-mono text-center select-all"
+        style={{ fontSize: 11, color: C.accent, letterSpacing: "0.04em" }}
+        data-testid="text-server-url"
+      >
+        {url}
+      </span>
+      <span className="font-mono text-center" style={{ fontSize: 8, color: C.dim, letterSpacing: "0.08em" }}>
+        Scan or type this address on any device on the same Wi-Fi network.
+      </span>
+    </div>
+  );
+}
+
 interface StripProps {
   label: string;
   color: string;
@@ -665,6 +713,7 @@ function ConnectForm({ onDemo }: { onDemo: () => void }) {
   const [port, setPort] = useState("3000");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const serverUrl = useServerUrl();
 
   async function connect() {
     if (!ip.trim()) return;
@@ -794,6 +843,11 @@ function ConnectForm({ onDemo }: { onDemo: () => void }) {
           Preview Interface
         </button>
       </div>
+
+      {/* QR code — visible on the connect screen so tablets can scan right away */}
+      <div className="w-full max-w-sm mt-4">
+        <QRCard url={serverUrl} />
+      </div>
     </div>
   );
 }
@@ -802,18 +856,8 @@ function ConnectForm({ onDemo }: { onDemo: () => void }) {
 function SettingsPanel({ onClose, wsState }: { onClose: () => void; wsState: MixerState }) {
   const [ip, setIp] = useState(wsState.ip || "");
   const [port, setPort] = useState(String(wsState.port || 3000));
-  const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const serverUrl = useServerUrl();
   const { toast } = useToast();
-
-  useEffect(() => {
-    fetch("/api/info")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.url && d.url !== "http://localhost:5000") setServerUrl(d.url);
-        else setServerUrl(`http://${location.hostname}:${location.port || 5000}`);
-      })
-      .catch(() => setServerUrl(null));
-  }, []);
 
   async function handleConnect() {
     try {
@@ -861,45 +905,8 @@ function SettingsPanel({ onClose, wsState }: { onClose: () => void; wsState: Mix
         <button onClick={onClose}><X size={17} color={C.dim} /></button>
       </div>
 
-      {/* ── QR Code — scan to open mixer on any device on the same network ── */}
-      {serverUrl && (
-        <div
-          className="rounded-2xl p-4 flex flex-col items-center gap-3"
-          style={{ background: C.panel, border: `1px solid ${C.border}` }}
-        >
-          <span
-            className="font-mono uppercase tracking-widest self-start"
-            style={{ fontSize: 8, color: C.dim, letterSpacing: "0.18em" }}
-          >
-            Open on tablet / phone
-          </span>
-          <div
-            className="rounded-xl p-2"
-            style={{ background: "#ffffff" }}
-          >
-            <QRCodeSVG
-              value={serverUrl}
-              size={160}
-              bgColor="#ffffff"
-              fgColor="#0b1120"
-              level="M"
-            />
-          </div>
-          <span
-            className="font-mono text-center select-all"
-            style={{ fontSize: 11, color: C.accent, letterSpacing: "0.04em" }}
-            data-testid="text-server-url"
-          >
-            {serverUrl}
-          </span>
-          <span
-            className="font-mono text-center"
-            style={{ fontSize: 8, color: C.dim, letterSpacing: "0.08em" }}
-          >
-            Scan or type this address on any device on the same Wi-Fi network.
-          </span>
-        </div>
-      )}
+      {/* QR code for opening on tablets / phones */}
+      <QRCard url={serverUrl} />
 
       {/* Status indicator */}
       <div
