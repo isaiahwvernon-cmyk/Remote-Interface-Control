@@ -1058,7 +1058,7 @@ export default function Home() {
   return (
     <div
       className="flex flex-col dsp-screen"
-      style={{ minHeight: "100dvh", maxHeight: "100dvh", overflow: "hidden", color: C.bright }}
+      style={{ height: "100dvh", overflow: "hidden", color: C.bright }}
     >
       {/* ── Header bar ── */}
       <div
