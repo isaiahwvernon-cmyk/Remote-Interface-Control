@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "t1OqnmByd7ERoLL7jI4A5"
+uri = "file://DEVELOPER.txt"
+type = "text"
+title = "Developer Documentation"
+
+[[outputs]]
+id = "V7UH58qYw3hY4H1JYhndn"
+uri = "file://USER_GUIDE.txt"
+type = "text"
+title = "User Guide"
+
+[[outputs]]
+id = "PuQESDH8qmjHK8zk8WLLU"
+uri = "file://OPEN_SOURCE.txt"
+type = "text"
+title = "Open Source Information"

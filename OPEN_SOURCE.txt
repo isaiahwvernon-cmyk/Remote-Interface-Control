@@ -1,0 +1,229 @@
+================================================================================
+  IP-A1 VOLUME CONTROLLER — OPEN SOURCE INFORMATION
+================================================================================
+
+
+--------------------------------------------------------------------------------
+LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2024 IP-A1 Volume Controller Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+ABOUT THIS SOFTWARE
+--------------------------------------------------------------------------------
+IP-A1 Volume Controller is a free, open-source web application for controlling
+TOA IP-A1 series network ceiling speakers over a local area network (LAN).
+
+It is designed for educational institutions, offices, and any environment using
+TOA IP-A1 series speakers where teachers or staff need a simple, mobile-friendly
+interface to control audio without physical access to amplifiers.
+
+This software is NOT affiliated with, endorsed by, or officially supported by
+TOA Corporation or TOA Canada. It is a third-party community tool that uses
+TOA's publicly documented HTTP API.
+
+
+--------------------------------------------------------------------------------
+TOA SPEAKER API — THIRD-PARTY HARDWARE NOTES
+--------------------------------------------------------------------------------
+This software communicates with TOA IP-A1 series speakers using their built-in
+HTTP REST API with HTTP Digest Authentication (RFC 2617).
+
+The TOA IP-A1 API documentation and technical manuals are available from:
+
+  TOA Corporation (Japan):
+    https://www.toa.co.jp/en/
+
+  TOA Canada Corporation:
+    https://www.toacanada.com/
+
+  TOA Electronics (USA):
+    https://www.toaelectronics.com/
+
+Relevant product series for which this software is designed:
+  - IP-A1S (ceiling speaker, PoE)
+  - IP-A1F (flush-mount ceiling speaker)
+  - IP-A1T (tile-type ceiling speaker)
+  - Other IP-A1 series models with HTTP API v2 support
+
+To obtain the full IP-A1 API specification, contact TOA technical support or
+refer to the IP-A1 series installation and technical manual, which documents:
+  - HTTP Digest Authentication requirements
+  - All available API endpoints (/api/v2/...)
+  - Volume control commands
+  - Mute control commands
+  - System information endpoints
+  - Firmware and model information endpoints
+
+WHAT THIS SOFTWARE DOES WITH THE TOA API:
+  This application acts as an HTTP proxy. The Node.js server receives requests
+  from browsers (which cannot perform Digest Authentication natively) and
+  forwards them to the speaker hardware with proper Digest Auth headers.
+  No data is modified in transit. No data is sent to any external server.
+  All communication stays within the local network.
+
+API ENDPOINTS USED (base URL: http://<speaker_ip>):
+  GET /api/v2/volume/get_master            — Read current volume
+  GET /api/v2/volume/set_master?volume=N   — Set volume (N = 0 to 61)
+  GET /api/v2/volume/inc_master            — Increment volume
+  GET /api/v2/volume/dec_master            — Decrement volume
+  GET /api/v2/volume/get_master_mute       — Read mute state
+  GET /api/v2/volume/set_master_mute?mute_state=mute   — Mute
+  GET /api/v2/volume/set_master_mute?mute_state=unmute — Unmute
+  GET /api/v2/firmware/model               — Read model information
+
+
+--------------------------------------------------------------------------------
+OPEN SOURCE DEPENDENCIES
+--------------------------------------------------------------------------------
+This software is built on the following open-source packages.
+Each is used under its respective license (all permissive).
+
+RUNTIME DEPENDENCIES
+
+  express                    MIT     Web framework for Node.js
+    https://expressjs.com/
+
+  react                      MIT     UI library
+  react-dom                  MIT     https://react.dev/
+
+  @tanstack/react-query      MIT     Data fetching and caching
+    https://tanstack.com/query
+
+  wouter                     MIT     Minimalist React router
+    https://github.com/molefrog/wouter
+
+  zod                        MIT     TypeScript-first schema validation
+    https://zod.dev/
+
+  tailwindcss                MIT     Utility-first CSS framework
+    https://tailwindcss.com/
+
+  @radix-ui/*                MIT     Accessible UI primitives (shadcn/ui)
+    https://www.radix-ui.com/
+
+  lucide-react               ISC     Icon library
+    https://lucide.dev/
+
+  qrcode.react               MIT     QR code generation for React
+    https://github.com/zpao/qrcode.react
+
+  class-variance-authority   Apache  Component variant utility
+    https://cva.style/
+
+  clsx                       MIT     Class name utility
+    https://github.com/lukeed/clsx
+
+  tailwind-merge             MIT     Tailwind class merge utility
+    https://github.com/dcastil/tailwind-merge
+
+BUILD / DEVELOPMENT DEPENDENCIES
+
+  vite                       MIT     Frontend build tool and dev server
+    https://vitejs.dev/
+
+  typescript                 Apache  TypeScript compiler
+    https://www.typescriptlang.org/
+
+  esbuild                    MIT     Server-side bundler
+    https://esbuild.github.io/
+
+  tsx                        MIT     TypeScript execution for Node.js
+    https://github.com/privatenumber/tsx
+
+  drizzle-orm                Apache  ORM (used for schema tooling)
+    https://orm.drizzle.team/
+
+  @hookform/resolvers        MIT     React Hook Form + Zod integration
+    https://react-hook-form.com/
+
+  react-hook-form            MIT     Form state management
+    https://react-hook-form.com/
+
+Full dependency list with exact versions: see package.json in the source code.
+
+
+--------------------------------------------------------------------------------
+CONTRIBUTING
+--------------------------------------------------------------------------------
+Contributions are welcome. If you improve this software, please consider
+sharing your changes so others in the TOA IP-A1 community can benefit.
+
+When contributing:
+  - Keep the code readable and well-commented
+  - Test on both desktop browsers and mobile (iOS Safari, Android Chrome)
+  - Ensure changes work with the production build (start.bat), not just dev mode
+  - Do not hardcode credentials or school-specific configuration
+
+Areas where contributions are especially valuable:
+  - Support for additional TOA speaker models or firmware versions
+  - Accessibility improvements
+  - Additional language translations for the UI
+  - Better offline/PWA support (service worker caching)
+  - Support for speaker grouping across rooms (school-wide announcements)
+  - Volume scheduling (set volume automatically at certain times)
+
+
+--------------------------------------------------------------------------------
+SECURITY NOTES
+--------------------------------------------------------------------------------
+This software is designed for CLOSED LAN use only.
+
+  - Speaker passwords are stored in plain text in rooms.json
+  - There is no HTTPS / TLS encryption (plain HTTP over LAN)
+  - The admin password ("IPA1") is stored in the source code as plain text
+  - No rate limiting or brute-force protection is implemented
+
+These are acceptable trade-offs for an internal school network tool.
+
+DO NOT:
+  - Expose this server to the public internet
+  - Use it over a VPN connection where traffic may be intercepted
+  - Store sensitive credentials other than speaker login credentials
+
+If your school requires higher security:
+  - Place the server behind a reverse proxy with HTTPS (e.g. nginx + Let's Encrypt)
+  - Implement stronger admin authentication (JWT, session tokens)
+  - Encrypt rooms.json at rest
+
+For most school deployments, the default configuration is sufficient.
+
+
+--------------------------------------------------------------------------------
+ACKNOWLEDGEMENTS
+--------------------------------------------------------------------------------
+This software was built for educators and school administrators who need a
+simple, reliable way to control classroom audio without technical complexity.
+
+Thanks to:
+  - The TOA Corporation for manufacturing the IP-A1 speaker series and providing
+    a documented HTTP API that makes third-party integrations possible
+  - TOA Canada for product support and technical resources
+  - The open-source community for all the libraries that make this possible
+  - School IT administrators and teachers whose feedback shaped the design
+
+
+================================================================================
+  END OF OPEN SOURCE INFORMATION
+================================================================================
