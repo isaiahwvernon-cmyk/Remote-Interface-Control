@@ -12,3 +12,9 @@ id = "WeuZaqA4ui2H9VBSa-DcM"
 uri = "file://USER_GUIDE.txt"
 type = "text"
 title = "User Setup & Operation Guide"
+
+[[outputs]]
+id = "Oe3IS5N1WBC43VkxadnYU"
+uri = "file://LEGAL_AND_OPEN_SOURCE.txt"
+type = "text"
+title = "Open Source & Legal Notice"
