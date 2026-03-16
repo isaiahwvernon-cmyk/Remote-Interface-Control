@@ -1180,22 +1180,29 @@ export default function Home() {
 
           {/* ── Channels ── */}
           {tab === "channels" && (
-            <div
-              className="flex items-stretch overflow-x-auto overflow-y-hidden flex-1"
-              style={{ scrollbarWidth: "thin", scrollbarColor: `${C.border} transparent` }}
-            >
-              {CH_DEFS.map((ch) => (
-                <ChannelStrip
-                  key={ch.label}
-                  label={ch.label}
-                  color={ch.color}
-                  position={ch.getPos(mixState)}
-                  on={ch.getOn(mixState)}
-                  level={ch.getLvl(mixState)}
-                  onFader={(v) => setFader(ch.attr, ch.ch, v)}
-                  onToggle={() => toggleOn(ch.attr, ch.ch, ch.getOn(mixState))}
-                />
-              ))}
+            /* flex-1 gives this wrapper a DEFINITE height in the column parent */
+            <div className="flex-1 overflow-hidden">
+              {/* scroll container is separate so overflow doesn't collapse cross-axis height */}
+              <div
+                className="h-full overflow-x-auto overflow-y-hidden"
+                style={{ scrollbarWidth: "thin", scrollbarColor: `${C.border} transparent` }}
+              >
+                {/* flex row also h-full — strips now inherit a definite height */}
+                <div className="flex h-full">
+                  {CH_DEFS.map((ch) => (
+                    <ChannelStrip
+                      key={ch.label}
+                      label={ch.label}
+                      color={ch.color}
+                      position={ch.getPos(mixState)}
+                      on={ch.getOn(mixState)}
+                      level={ch.getLvl(mixState)}
+                      onFader={(v) => setFader(ch.attr, ch.ch, v)}
+                      onToggle={() => toggleOn(ch.attr, ch.ch, ch.getOn(mixState))}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
