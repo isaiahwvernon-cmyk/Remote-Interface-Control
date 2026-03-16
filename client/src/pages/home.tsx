@@ -92,6 +92,7 @@ const SCALE_MARKS = [
 // Fixed heights inside each strip
 const LABEL_H  = 22;
 const DB_H     = 20;
+const METER_H  = 14;
 const BTN_H    = 52;
 // Padding at top/bottom of the track so the thumb is never clipped at either extreme
 const FADER_PAD = 14;
@@ -178,7 +179,7 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
   const dbStr = formatDb(db);
   const meterPct = Math.min(100, (level / 72) * 100);
   const pct0db = (1 - 53 / 63) * 100;
-  const stripH = LABEL_H + faderH + DB_H + BTN_H;
+  const stripH = LABEL_H + faderH + DB_H + METER_H + BTN_H;
 
   // Peak hold: jump to new peak, decay after 1.5 s
   const [peakPct, setPeakPct] = useState(0);
@@ -189,7 +190,25 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
       if (peakTimer.current) clearTimeout(peakTimer.current);
       peakTimer.current = setTimeout(() => setPeakPct(0), 1500);
     }
-  }, [meterPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meterPct, peakPct]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fake noise-floor animation: channel is on but mixer hasn't sent level data yet
+  const [fakePct, setFakePct] = useState(0);
+  const fakeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (on && level === 0) {
+      fakeTimer.current = setInterval(() => {
+        setFakePct(Math.random() * 14 + 2); // 2–16% → looks like ambient noise floor
+      }, 140);
+    } else {
+      if (fakeTimer.current) { clearInterval(fakeTimer.current); fakeTimer.current = null; }
+      setFakePct(0);
+    }
+    return () => { if (fakeTimer.current) clearInterval(fakeTimer.current); };
+  }, [on, level]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Final display percentage: real meter wins over fake
+  const displayPct = level > 0 ? meterPct : (on ? fakePct : 0);
 
   return (
     <div
@@ -274,48 +293,6 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
           />
         </div>
 
-        {/* Level meter — segmented bar + peak hold dot */}
-        <div className="absolute right-0 overflow-hidden"
-          style={{ top: FADER_PAD, bottom: FADER_PAD, width: 9, background: "#080d18", borderRadius: 3 }}>
-
-          {/* Filled bar */}
-          <div
-            className="absolute bottom-0 w-full"
-            style={{
-              height: `${meterPct}%`,
-              background:
-                meterPct > 88
-                  ? C.recOut
-                  : meterPct > 70
-                  ? `linear-gradient(to top, ${C.monoOut}, #e0c040)`
-                  : `linear-gradient(to top, ${C.monoOut}cc, ${C.monoOut})`,
-              transition: "height 0.06s linear",
-              borderRadius: 2,
-            }}
-          />
-
-          {/* Segment lines overlay — creates the "VU bar" look */}
-          <div className="absolute inset-0 pointer-events-none" style={{
-            backgroundImage: "repeating-linear-gradient(to bottom, transparent 0px, transparent 3px, #080d18 3px, #080d18 4px)",
-            backgroundSize: "100% 4px",
-          }} />
-
-          {/* Peak hold indicator */}
-          {peakPct > 2 && (
-            <div
-              className="absolute w-full"
-              style={{
-                bottom: `${peakPct}%`,
-                height: 2,
-                background: peakPct > 88 ? C.recOut : peakPct > 70 ? "#e0c040" : C.monoOut,
-                opacity: 0.9,
-                transition: "bottom 0.15s ease-out",
-                borderRadius: 1,
-                boxShadow: `0 0 4px ${peakPct > 88 ? C.recOut : C.monoOut}`,
-              }}
-            />
-          )}
-        </div>
       </div>
 
       {/* dB readout */}
@@ -325,6 +302,63 @@ function ChannelStrip({ label, color, position, on, level, faderH, onFader, onTo
           fontSize: 10, color: on ? C.bright : C.dim, letterSpacing: "0.04em" }}
       >
         {dbStr}
+      </div>
+
+      {/* ── Level Meter Bar ─────────────────────────────────── */}
+      <div
+        className="w-full px-1.5"
+        style={{ height: METER_H, flexShrink: 0, display: "flex", alignItems: "center" }}
+      >
+        {/* Outer track — always visible so user can see the meter area */}
+        <div
+          className="relative w-full overflow-hidden"
+          style={{
+            height: 8,
+            background: "#060c18",
+            borderRadius: 4,
+            border: `1px solid ${C.border}`,
+          }}
+        >
+          {/* Colour fill */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: `${displayPct}%`,
+              background:
+                displayPct > 88
+                  ? C.recOut
+                  : displayPct > 70
+                  ? `linear-gradient(to right, ${C.monoOut}, #e0c040)`
+                  : C.monoOut,
+              borderRadius: 4,
+              transition: "width 0.06s linear",
+              boxShadow: displayPct > 2 ? `0 0 6px ${displayPct > 88 ? C.recOut : C.monoOut}99` : "none",
+            }}
+          />
+          {/* Segment dividers for VU look */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: "repeating-linear-gradient(to right, transparent 0px, transparent 4px, #060c18 4px, #060c18 5px)",
+            }}
+          />
+          {/* Peak hold tick */}
+          {peakPct > 2 && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0, bottom: 0,
+                left: `${peakPct}%`,
+                width: 2,
+                background: peakPct > 88 ? C.recOut : peakPct > 70 ? "#e0c040" : C.monoOut,
+                opacity: 0.95,
+                boxShadow: `0 0 4px ${peakPct > 88 ? C.recOut : C.monoOut}`,
+                transition: "left 0.15s ease-out",
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* ON / MUTE button */}
